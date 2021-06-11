@@ -45,7 +45,9 @@ circle {
   fill: red;
 }
 line {
-  stroke: black;
+  stroke: #777;
+  stroke-width: 2px;
+  stroke-linecap: round;
 }
 circle.line {
   fill: green;
@@ -56,21 +58,23 @@ circle.node {
 *[hidden] {
   opacity: 0;
 }
+#lines {
+  opacity: 0.9;
+}
 #joins {
   opacity: 0.5;
 }
 #joins line {
   stroke: blue;
   stroke-width: 4px;
-  stroke-linecap: round;
 }
 </style>
 <svg>
-  <circle r="4" id="start" />
-  <circle r="4" id="nearest" />
-  <line id="line" />
   <g id="lines"></g>
   <g id="joins"></g>
+  <line id="line" />
+  <circle r="4" id="start" />
+  <circle r="4" id="nearest" />
 </svg>
     `;
 
@@ -181,11 +185,10 @@ circle.node {
       }
     };
 
-    // TODO: draw hints as to where joins will occur
+    // renders hints about what we'll connect to
     const joinsNearest = this.#game.dirsFor(this.#startPoint, p);
-    render(p, joinsNearest);
-
     const joinsStart = this.#game.dirsFor(p, this.#startPoint);
+    render(p, joinsNearest);
     render(this.#startPoint, joinsStart);
   };
 

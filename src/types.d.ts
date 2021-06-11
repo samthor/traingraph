@@ -22,3 +22,11 @@ export interface LineSearch {
   y: number;
   dist: number;
 }
+
+
+export interface AtNode {
+  edge: string;
+  at: number;
+  priorNode: string;
+  afterNode: string;
+}

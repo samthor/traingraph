@@ -7,16 +7,7 @@ import * as types from './types.js';
 export const zeroLineSearch = {line: null, nodeId: '', offset: NaN, x: 0, y: 0, dist: Infinity};
 
 
-/**
- * @typedef {{
- *   low: {x: number, y: number},
- *   high: {x: number, y: number},
- *   length: number,
- *   id: string,
- * }}
- * @type {never}
- */
-export var GameLineType;
+const maxAngle = Math.PI / 3;
 
 
 /**
@@ -78,26 +69,40 @@ export class TrainGame extends EventTarget {
     };
     this.#lines.set(id, line);
 
-    // We have to work out if each end/both sides were actually a touch on a real node.
-
-    [low, high].forEach((end, index) => {
-      if (end.line === null) {
-        return;
-      }
+    // We have to work out if each end/both sides were actually a touch on a real node and merge.
+    const nodes = [low, high].map((end, index) => {
       if (index !== 0 && index !== 1) {
         throw new Error(`bad index`);
       }
       const nodeId = this.#g.endNode(id, index);
+      if (end.line === null) {
+        return nodeId;  // nothing to merge, this is _our_ node
+      }
+
       let otherNodeId = end.nodeId;
 
-      // We have to split the other line.
+      // We have to split the other line, because the search wasn't pointing at an actual node.
       if (otherNodeId === '') {
         const split = this.#g.split(end.line.id, end.offset, true);
         otherNodeId = split.id;
       }
 
-      // now merge with previous (draw the rest of the owl)
-      this.#g.mergeNode(nodeId, otherNodeId);
+      // Merge this end with the split.
+      return this.#g.mergeNode(nodeId, otherNodeId);
+    });
+
+    // Now we have to add pairs as needed. This is a three-point problem.
+    [low, high].forEach((end, index) => {
+      const otherEnd = end === low ? high : low;
+      const midNode = nodes[index];
+      const otherNode = nodes[index ? 0 : 1];
+
+      // we have 2/3 nodes, need (many) 3rd: where it can link up to
+
+      const results = this.dirsFor(otherEnd, end);
+      results.forEach(({node}) => {
+        this.#g.join(otherNode, midNode, node);
+      });
     });
 
     this.dispatchEvent(new CustomEvent('update'));
@@ -183,9 +188,8 @@ export class TrainGame extends EventTarget {
   /**
    * @param {types.Point} fromPoint
    * @param {types.LineSearch} find
-   * @param {number} maxAngle in radians
    */
-  dirsFor(fromPoint, find, maxAngle = Math.PI / 3) {
+  dirsFor(fromPoint, find) {
     const {line} = find;
     if (!line) {
       return [];  // no joins, brand new line
@@ -193,12 +197,29 @@ export class TrainGame extends EventTarget {
 
     const angle = Math.atan2(fromPoint.y - find.y, fromPoint.x - find.x);
 
-    /** @type {{line: string, angle: number}[]} */
+    /** @type {{line: string, angle: number, node: string}[]} */
     const out = [];
 
     // other lines are either: all lines at node, or a single line we're _about_ to join
-    const allLines = find.nodeId ? this.#g.linesAtNode(find.nodeId) : [{edge: line.id, at: find.offset}];
-    for (const {edge: lineId, at} of allLines) {
+
+    /** @type {types.AtNode[]} */
+    let allLines;
+    if (find.nodeId) {
+      allLines = this.#g.linesAtNode(find.nodeId);
+    } else {
+      const around = this.#g.nodeAround(line.id, find.offset);
+      allLines = [
+        {
+          edge: line.id,
+          at: find.offset,
+          ...around,
+        },
+      ];
+    }
+
+    for (const raw of allLines) {
+      const {edge: lineId, at} = raw;
+
       const line = this.#lines.get(lineId);
       if (!line) {
         throw new Error(`missing line: ${lineId}`);
@@ -210,16 +231,14 @@ export class TrainGame extends EventTarget {
       const delta = Math.min((Math.PI * 2) - Math.abs(angle - lineAngle), Math.abs(lineAngle - angle));
       // console.warn('delta angle', delta, 'vs', maxAngle, 'and', Math.PI - maxAngle);
 
-      if (delta < maxAngle) {
+      if (delta < maxAngle && raw.priorNode) {
         // going towards low?
-        if (at > 0.0) {
-          out.push({line: lineId, angle: lineAngle + Math.PI});
-        }
-      } else if (delta > Math.PI - maxAngle) {
+        out.push({line: lineId, angle: lineAngle + Math.PI, node: raw.priorNode});
+      }
+
+      if (delta > Math.PI - maxAngle && raw.afterNode) {
         // going towards high
-        if (at < 1.0) {
-          out.push({line: lineId, angle: lineAngle});
-        }
+        out.push({line: lineId, angle: lineAngle, node: raw.afterNode});
       }
     }
 
