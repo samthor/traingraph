@@ -1,7 +1,7 @@
 
 
 import { sharedGame } from '../shared';
-import { TrainGame, zeroLineSearch } from '../game';
+import { along, angleInCurve, TrainGame, zeroLineSearch } from '../game';
 import * as types from '../types';
 
 
@@ -61,6 +61,15 @@ circle.node {
 #lines {
   opacity: 0.9;
 }
+#lines path.hint {
+  stroke: red;
+  stroke-width: 1px;
+  stroke-linecap: round;
+  fill: transparent;
+}
+#lines circle {
+  fill: #333;
+}
 #joins {
   opacity: 0.5;
 }
@@ -115,6 +124,40 @@ circle.node {
       e.setAttribute('x2', line.high.x / this.#ratio + 'px');
       e.setAttribute('y2', line.high.y / this.#ratio + 'px');
       this.#groupLines.append(e);
+    }
+
+    for (const node of this.#game.nodes) {
+      const pos = this.#game.nodePos(node);
+      const e = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      e.setAttribute('r', '2');
+      e.setAttribute('cx', pos.x / this.#ratio + 'px');
+      e.setAttribute('cy', pos.y / this.#ratio + 'px');
+      this.#groupLines.append(e);
+
+      const pairs = this.#game.pairsAtNode(node);
+      console.warn('at node', node, 'got pairs', pairs);
+      pairs.forEach(([left, right]) => {
+        const leftPos = this.#game.nodePos(left);
+        const rightPos = this.#game.nodePos(right);
+
+        // move leftPos/rightPos to only be ~16px from node
+        const leftAlongPos = along(pos, leftPos, 16 * this.#ratio);
+        const rightAlongPos = along(pos, rightPos, 16 * this.#ratio);
+
+        const e = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        e.setAttribute('d', `
+M ${leftAlongPos.x / this.#ratio} ${leftAlongPos.y / this.#ratio}
+S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio} ${rightAlongPos.y / this.#ratio}
+        `);
+        e.setAttribute('class', 'hint');
+
+        // TODO: this isn't quite right, ends up in weird places
+        const angle = angleInCurve(leftPos, pos, rightPos) + Math.PI / 2;
+        e.setAttribute('transform', `translate(${Math.cos(angle) * 4} ${Math.sin(angle) * 4})`);
+
+        this.#groupLines.append(e);
+      });
+
     }
   };
 

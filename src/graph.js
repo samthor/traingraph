@@ -74,6 +74,10 @@ export class Graph {
    */
   #byNode = new Map();
 
+  allNodes() {
+    return this.#byNode.keys();
+  }
+
   /**
    * @param {number} length
    * @return {string}

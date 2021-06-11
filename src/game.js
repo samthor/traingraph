@@ -23,6 +23,30 @@ function lerp(low, high, ratio) {
 
 
 /**
+ * @param {types.Point} a
+ * @param {types.Point} via
+ * @param {types.Point} b
+ */
+export function angleInCurve(a, via, b) {
+  const angle = Math.atan2(via.y - a.y, via.x - a.x);
+  const lineAngle = Math.atan2(via.y - b.y, via.x - b.x);
+  return Math.min((Math.PI * 2) - Math.abs(angle - lineAngle), Math.abs(lineAngle - angle));
+}
+
+
+/**
+ * @param {types.Point} low
+ * @param {types.Point} high
+ * @param {number} unit
+ */
+export function along(low, high, unit) {
+  const dist = hypotDist(low, high);
+  console.warn('along is', unit / dist);
+  return lerp(low, high, unit / dist);
+}
+
+
+/**
  * @param {types.Point} low
  * @param {types.Point} high
  */
@@ -48,6 +72,32 @@ export class TrainGame extends EventTarget {
 
   get graph() {
     return this.#g;
+  }
+
+  get nodes() {
+    return this.#g.allNodes();
+  }
+
+  /**
+   * @param {string} node
+   */
+  pairsAtNode(node) {
+    return this.#g.pairsAtNode(node);
+  }
+
+  /**
+   * @param {string} node
+   */
+  nodePos(node) {
+    // TODO: we only need the 1st one
+    const [any] = this.#g.linesAtNode(node);
+
+    const line = this.#lines.get(any.edge);
+    if (!line) {
+      throw new Error(`bad line`);
+    }
+
+    return lerp(line.low, line.high, any.at);
   }
 
   /** @type {Map<string, types.Line>} */
