@@ -14,6 +14,9 @@ export class TrainGraphElement extends HTMLElement {
   #state = '';
 
   /** @type {SVGCircleElement} */
+  #startCircle;
+
+  /** @type {SVGCircleElement} */
   #nearestCircle;
 
   /** @type {SVGLineElement} */
@@ -21,6 +24,9 @@ export class TrainGraphElement extends HTMLElement {
 
   /** @type {SVGElement} */
   #groupLines;
+
+  /** @type {SVGElement} */
+  #joinLines;
 
   /** @type {types.LineSearch} */
   #startPoint = zeroLineSearch;
@@ -47,18 +53,33 @@ circle.line {
 circle.node {
   fill: blue;
 }
+*[hidden] {
+  opacity: 0;
+}
+#joins {
+  opacity: 0.5;
+}
+#joins line {
+  stroke: blue;
+  stroke-width: 4px;
+  stroke-linecap: round;
+}
 </style>
 <svg>
-  <circle cx="50" cy="50" r="4" id="nearest" />
+  <circle r="4" id="start" />
+  <circle r="4" id="nearest" />
   <line id="line" />
   <g id="lines"></g>
+  <g id="joins"></g>
 </svg>
     `;
 
     const s = /** @type {SVGSVGElement} */ (root.querySelector('svg'));
+    this.#startCircle = /** @type {SVGCircleElement} */ (s.getElementById('start'));
     this.#nearestCircle = /** @type {SVGCircleElement} */ (s.getElementById('nearest'));
     this.#pendingLine = /** @type {SVGLineElement} */ (s.getElementById('line'));
     this.#groupLines = /** @type {SVGElement} */ (s.getElementById('lines'));
+    this.#joinLines = /** @type {SVGElement} */ (s.getElementById('joins'));
 
     const ro = new ResizeObserver(() => {
       s.setAttribute('width', this.offsetWidth + 'px');
@@ -104,16 +125,21 @@ circle.node {
 
   /**
    * @param {SVGCircleElement} circ
-   * @param {types.LineSearch} s
+   * @param {types.LineSearch?} s
    */
   #configureCircle = (circ, s) => {
+    circ.toggleAttribute('hidden', s === null);
+    if (s === null) {
+      return;
+    }
+
     circ.setAttribute('cx', s.x / this.#ratio + 'px');
     circ.setAttribute('cy', s.y / this.#ratio + 'px');
 
     let className = '';
     if (s.line) {
       className = 'line';
-      if (s.nodeIndex !== -1) {
+      if (s.nodeId) {
         className = 'node';
       }
     }
@@ -126,13 +152,41 @@ circle.node {
   #onPointerMove = (event) => {
     const p = this.#adjustEvent(event);
     this.#nearestPoint = p;
+    this.#joinLines.textContent = '';
 
+    if (this.#state !== 'pending') {
+      this.#configureCircle(this.#startCircle, p);
+      this.#configureCircle(this.#nearestCircle, null);
+      return;
+    }
+
+    this.#pendingLine.setAttribute('x2', p.x / this.#ratio + 'px');
+    this.#pendingLine.setAttribute('y2', p.y / this.#ratio + 'px');
+
+    this.#configureCircle(this.#startCircle, this.#startPoint);
     this.#configureCircle(this.#nearestCircle, p);
 
-    if (this.#state === 'pending') {
-      this.#pendingLine.setAttribute('x2', p.x / this.#ratio + 'px');
-      this.#pendingLine.setAttribute('y2', p.y / this.#ratio + 'px');
-    }
+    /** @type {(root: types.Point, joins: {line: string, angle: number}[]) => void} */
+    const render = (root, joins) => {
+      for (const j of joins) {
+        const rx = root.x / this.#ratio;
+        const ry = root.y / this.#ratio;
+  
+        const e = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        e.setAttribute('x1', rx + 'px');
+        e.setAttribute('y1', ry + 'px');
+        e.setAttribute('x2', rx + (Math.cos(j.angle) * 32) + 'px');
+        e.setAttribute('y2', ry + (Math.sin(j.angle) * 32) + 'px');
+        this.#joinLines.append(e);
+      }
+    };
+
+    // TODO: draw hints as to where joins will occur
+    const joinsNearest = this.#game.dirsFor(this.#startPoint, p);
+    render(p, joinsNearest);
+
+    const joinsStart = this.#game.dirsFor(p, this.#startPoint);
+    render(this.#startPoint, joinsStart);
   };
 
   /**

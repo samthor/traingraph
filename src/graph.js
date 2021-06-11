@@ -1,6 +1,4 @@
 
-import * as types from './types.js';
-
 
 const nextGlobalId = (function() {
   let globalId = 0;
@@ -171,19 +169,24 @@ export class Graph {
   }
 
   /**
+   * @param {string} node
+   */
+  linesAtNode(node) {
+    const data = this.#dataForNode(node);
+    return [...data.holder];
+  }
+
+  /**
    * @param {string} a
    * @param {string} b
    */
   mergeNode(a, b) {
-    const nodeA = this.#byNode.get(a);
-    const nodeB = this.#byNode.get(b);
-    if (!nodeA || !nodeB) {
-      throw new Error(`missing nodes`);
-    }
+    const dataA = this.#dataForNode(a);
+    const dataB = this.#dataForNode(b);
 
     // One node remains, one is removed. Keep the one with more joins.
-    const remain = nodeA.holder.size > nodeB.holder.size ? nodeA : nodeB;
-    const remove = (remain === nodeA ? nodeB : nodeA);
+    const remain = dataA.holder.size > dataB.holder.size ? dataA : dataB;
+    const remove = (remain === dataA ? dataB : dataA);
 
     remain.pairs.push(...remove.pairs.splice(0, remove.pairs.length));
 
@@ -206,6 +209,17 @@ export class Graph {
       yield {edge, data};
     }
   }
+
+  /**
+   * @param {string} node
+   */
+  #dataForNode = (node) => {
+    const d = this.#byNode.get(node);
+    if (d === undefined) {
+      throw new Error(`missing data`);
+    }
+    return d;
+  };
 
   /**
    * @param {string} edge

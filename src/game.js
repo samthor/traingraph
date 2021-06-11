@@ -59,8 +59,8 @@ export class TrainGame extends EventTarget {
     return this.#g;
   }
 
-  /** @type {types.Line[]} */
-  #lines = [];
+  /** @type {Map<string, types.Line>} */
+  #lines = new Map();
 
   /**
    * @param {types.LineSearch} low
@@ -76,7 +76,7 @@ export class TrainGame extends EventTarget {
       length,
       id,
     };
-    this.#lines.push(line);
+    this.#lines.set(id, line);
 
     // We have to work out if each end/both sides were actually a touch on a real node.
 
@@ -116,7 +116,7 @@ export class TrainGame extends EventTarget {
     /** @type {types.Line | undefined} */
     let bestLine = undefined;
 
-    for (const line of this.#lines) {
+    for (const line of this.#lines.values()) {
       const opposite = distance(point, line.low, line.high);
       if (opposite >= bestDistance) {
         continue;
@@ -181,10 +181,54 @@ export class TrainGame extends EventTarget {
   }
 
   /**
+   * @param {types.Point} fromPoint
+   * @param {types.LineSearch} find
+   * @param {number} maxAngle in radians
+   */
+  dirsFor(fromPoint, find, maxAngle = Math.PI / 3) {
+    const {line} = find;
+    if (!line) {
+      return [];  // no joins, brand new line
+    }
+
+    const angle = Math.atan2(fromPoint.y - find.y, fromPoint.x - find.x);
+
+    /** @type {{line: string, angle: number}[]} */
+    const out = [];
+
+    // TODO: because we're looking at _lines_, this doesn't care about endpoints OR give node index
+
+    // other lines are either: all lines at node, or a single line we're _about_ to join
+    const allLines = find.nodeId ? this.#g.linesAtNode(find.nodeId) : [line.id];
+    for (const lineId of allLines) {
+      const line = this.#lines.get(lineId);
+      if (!line) {
+        throw new Error(`missing line: ${lineId}`);
+      }
+
+      // one or zero (the line), zero if threshold too low
+      const lineAngle = Math.atan2(line.high.y - line.low.y, line.high.x - line.low.x);
+
+      const delta = Math.min((Math.PI * 2) - Math.abs(angle - lineAngle), Math.abs(lineAngle - angle));
+      // console.warn('delta angle', delta, 'vs', maxAngle, 'and', Math.PI - maxAngle);
+
+      if (delta < maxAngle) {
+        // going towards low?
+        out.push({line: lineId, angle: lineAngle + Math.PI});
+      } else if (delta > Math.PI - maxAngle) {
+        // going towards high
+        out.push({line: lineId, angle: lineAngle});
+      }
+    }
+
+    return out;
+  }
+
+  /**
    * @return {Iterable<types.Line>}
    */
   get lines() {
-    return this.#lines.slice();
+    return [...this.#lines.values()];
   }
 
 }
