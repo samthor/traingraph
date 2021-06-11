@@ -103,7 +103,7 @@ export class Graph {
   find(edge, at, within) {
     const data = this.#dataForEdge(edge);
 
-    let all = data.virt.slice().map((virt, index) => {
+    const all = data.virt.slice().map((virt, index) => {
       return {at: virt.at, rel: Math.abs(virt.at - at), id: data.node[index].id};
     });
     all.push({at: 1.0, rel: Math.abs(1.0 - at), id: data.node[all.length].id});
@@ -169,11 +169,45 @@ export class Graph {
   }
 
   /**
-   * @param {string} node
+   * @param {string} nodeId
    */
-  linesAtNode(node) {
-    const data = this.#dataForNode(node);
-    return [...data.holder];
+  linesAtNode(nodeId) {
+
+    // return the positions of this node on the line (0-1) for reasons
+
+    const data = this.#dataForNode(nodeId);
+
+    /** @type {{edge: string, at: number}[]} */
+    const out = [];
+
+    for (const edgeId of data.holder) {
+      const edgeData = this.#dataForEdge(edgeId);
+
+      edgeData.node.forEach((cand, index) => {
+        if (nodeId !== cand.id) {
+          return;
+        }
+        // we found this node in its holder, see where it is
+        const virtBefore = edgeData.virt[index - 1] ?? null;
+        if (virtBefore === null) {
+          out.push({edge: edgeId, at: 0.0});
+          return;
+        }
+
+        const virtAfter = edgeData.virt[index] ?? null;
+        if (virtAfter === null) {
+          out.push({edge: edgeId, at: 1.0});
+          return;
+        }
+
+        // otherwise, this is in the middle
+        out.push({edge: edgeId, at: virtAfter.at});
+
+      });
+
+    }
+
+    return out;
   }
 
   /**

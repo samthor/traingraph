@@ -196,11 +196,9 @@ export class TrainGame extends EventTarget {
     /** @type {{line: string, angle: number}[]} */
     const out = [];
 
-    // TODO: because we're looking at _lines_, this doesn't care about endpoints OR give node index
-
     // other lines are either: all lines at node, or a single line we're _about_ to join
-    const allLines = find.nodeId ? this.#g.linesAtNode(find.nodeId) : [line.id];
-    for (const lineId of allLines) {
+    const allLines = find.nodeId ? this.#g.linesAtNode(find.nodeId) : [{edge: line.id, at: find.offset}];
+    for (const {edge: lineId, at} of allLines) {
       const line = this.#lines.get(lineId);
       if (!line) {
         throw new Error(`missing line: ${lineId}`);
@@ -214,10 +212,14 @@ export class TrainGame extends EventTarget {
 
       if (delta < maxAngle) {
         // going towards low?
-        out.push({line: lineId, angle: lineAngle + Math.PI});
+        if (at > 0.0) {
+          out.push({line: lineId, angle: lineAngle + Math.PI});
+        }
       } else if (delta > Math.PI - maxAngle) {
         // going towards high
-        out.push({line: lineId, angle: lineAngle});
+        if (at < 1.0) {
+          out.push({line: lineId, angle: lineAngle});
+        }
       }
     }
 
