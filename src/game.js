@@ -1,5 +1,6 @@
 
 import { Graph } from './graph.js';
+import * as helperMath from './helper/math.js';
 import * as types from './types.js';
 
 
@@ -8,53 +9,6 @@ export const zeroLineSearch = {line: null, nodeId: '', offset: NaN, x: 0, y: 0, 
 
 
 const maxAngle = Math.PI / 3;
-
-
-/**
- * @param {types.Point} low
- * @param {types.Point} high
- * @param {number} ratio
- */
-function lerp(low, high, ratio) {
-  const x = low.x + (high.x - low.x) * ratio;
-  const y = low.y + (high.y - low.y) * ratio;
-  return {x, y};
-}
-
-
-/**
- * Moves from low->high along a fraction of the distance.
- *
- * @param {types.Point} low
- * @param {types.Point} high
- * @param {number} unit
- */
-export function along(low, high, unit) {
-  const dist = hypotDist(low, high);
-  return lerp(low, high, unit / dist);
-}
-
-
-/**
- * @param {types.Point} low
- * @param {types.Point} high
- */
-function hypotDist(low, high) {
-  return Math.hypot(low.x - high.x, low.y - high.y);
-}
-
-
-/**
- * @param {types.Point} low
- * @param {types.Point} high
- * @param {types.Point} point
- */
-function distance(point, low, high) {
-  const top = Math.abs((high.x - low.x) * (low.y - point.y) - (low.x - point.x) * (high.y - low.y));
-  const bot = Math.hypot(high.x - low.x, high.y - low.y);
-  return top / bot;
-}
-
 
 
 export class TrainGame extends EventTarget {
@@ -86,7 +40,7 @@ export class TrainGame extends EventTarget {
       throw new Error(`bad line`);
     }
 
-    return lerp(line.low, line.high, any.at);
+    return helperMath.lerp(line.low, line.high, any.at);
   }
 
   /** @type {Map<string, types.Line>} */
@@ -158,14 +112,14 @@ export class TrainGame extends EventTarget {
     let bestLine = undefined;
 
     for (const line of this.#lines.values()) {
-      const opposite = distance(point, line.low, line.high);
+      const opposite = helperMath.distance(point, line.low, line.high);
       if (opposite >= bestDistance) {
         continue;
       }
       let bufferReal = range - opposite;
 
-      const lineMid = lerp(line.low, line.high, 0.5);
-      const hypot = hypotDist(lineMid, point);
+      const lineMid = helperMath.lerp(line.low, line.high, 0.5);
+      const hypot = helperMath.hypotDist(lineMid, point);
 
       const adjacent = Math.sqrt(Math.pow(hypot, 2) - Math.pow(opposite, 2));
       let adjust = (adjacent / line.length); // (0-0.5)
@@ -176,13 +130,13 @@ export class TrainGame extends EventTarget {
       }
 
       // This is kinda gross but work out which point is closer.
-      const distLow = hypotDist(line.low, point);
-      const distHigh = hypotDist(line.high, point);
+      const distLow = helperMath.hypotDist(line.low, point);
+      const distHigh = helperMath.hypotDist(line.high, point);
 
       if (adjust > 0.5) {
         // check we're in a circle around end, not a square box
         const closest = distLow < distHigh ? line.low : line.high;
-        const actualDist = hypotDist(closest, point);
+        const actualDist = helperMath.hypotDist(closest, point);
         if (actualDist >= bestDistance) {
           continue;
         }
@@ -214,7 +168,7 @@ export class TrainGame extends EventTarget {
 
     if (bestLine !== undefined) {
       const l = /** @type {types.Line} */ (bestLine);
-      const {x, y} = lerp(l.low, l.high, bestLineOffset);
+      const {x, y} = helperMath.lerp(l.low, l.high, bestLineOffset);
 
       return {line: l, nodeId: bestNodeId, offset: bestLineOffset, x, y, dist: bestDistance};
     }
@@ -256,9 +210,8 @@ export class TrainGame extends EventTarget {
       }
 
       // one or zero (the line), zero if threshold too low
-      const lineAngle = Math.atan2(line.high.y - line.low.y, line.high.x - line.low.x);
-
-      const delta = Math.min((Math.PI * 2) - Math.abs(angle - lineAngle), Math.abs(lineAngle - angle));
+      const lineAngle = helperMath.angle(line.high, line.low);
+      const delta = helperMath.smallestAngle(angle, lineAngle);
       // console.warn('delta angle', delta, 'vs', maxAngle, 'and', Math.PI - maxAngle);
 
       if (delta < maxAngle && raw.priorNode) {

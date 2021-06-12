@@ -1,10 +1,9 @@
 
 
 import { sharedGame } from '../shared';
-import { along, zeroLineSearch } from '../game';
+import { zeroLineSearch } from '../game';
+import * as helperMath from '../helper/math';
 import * as types from '../types';
-
-
 
 
 export class TrainUiElement extends HTMLElement {
@@ -140,8 +139,8 @@ circle.node {
         const rightPos = this.#game.nodePos(right);
 
         // move leftPos/rightPos to only be ~16px from node
-        const leftAlongPos = along(pos, leftPos, 16 * this.#ratio);
-        const rightAlongPos = along(pos, rightPos, 16 * this.#ratio);
+        const leftAlongPos = helperMath.along(pos, leftPos, 16 * this.#ratio);
+        const rightAlongPos = helperMath.along(pos, rightPos, 16 * this.#ratio);
 
         const e = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         e.setAttribute('d', `
@@ -151,7 +150,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         e.setAttribute('class', 'hint');
 
         // Move this fancy new curved line slightly into the angle we've just created.
-        const angle = Math.atan2(leftPos.y - rightPos.y, leftPos.x - rightPos.x) - (Math.PI / 2);
+        const angle = helperMath.angle(leftPos, rightPos) - (Math.PI / 2);
         e.setAttribute('transform', `translate(${Math.cos(angle) * 4} ${Math.sin(angle) * 4})`);
 
         this.#groupLines.append(e);
