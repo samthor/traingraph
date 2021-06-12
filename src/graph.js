@@ -266,8 +266,6 @@ export class Graph {
    * Returns all the positions of this given node on all its lines. This must at least return one
    * result.
    *
-   * TODO: sometimes we just want _one_
-   *
    * @param {string} nodeId
    * @return {types.AtNode[] & [types.AtNode]}
    */
@@ -316,6 +314,17 @@ export class Graph {
       throw new Error(`missing node`);
     }
     return /** @type {types.AtNode[] & [types.AtNode]} */ (out);
+  }
+
+  /**
+   * Returns any valid position of this node, although it may actually be on many lines.
+   *
+   * @param {string} nodeId
+   * @return {types.AtNode}
+   */
+  nodePos(nodeId) {
+    // TODO: yes this is bad
+    return this.linesAtNode(nodeId)[0];
   }
 
   /**

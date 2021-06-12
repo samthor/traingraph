@@ -78,8 +78,7 @@ export class TrainGame extends EventTarget {
    * @param {string} node
    */
   nodePos(node) {
-    // TODO: we only need the 1st one
-    const [any] = this.#g.linesAtNode(node);
+    const any = this.#g.nodePos(node);
 
     const line = this.#lines.get(any.edge);
     if (!line) {
