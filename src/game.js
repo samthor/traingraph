@@ -23,18 +23,6 @@ function lerp(low, high, ratio) {
 
 
 /**
- * @param {types.Point} a
- * @param {types.Point} via
- * @param {types.Point} b
- */
-export function angleInCurve(a, via, b) {
-  const angle = Math.atan2(via.y - a.y, via.x - a.x);
-  const lineAngle = Math.atan2(via.y - b.y, via.x - b.x);
-  return Math.min((Math.PI * 2) - Math.abs(angle - lineAngle), Math.abs(lineAngle - angle));
-}
-
-
-/**
  * @param {types.Point} low
  * @param {types.Point} high
  * @param {number} unit

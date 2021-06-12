@@ -1,7 +1,7 @@
 
 
 import { sharedGame } from '../shared';
-import { along, angleInCurve, TrainGame, zeroLineSearch } from '../game';
+import { along, TrainGame, zeroLineSearch } from '../game';
 import * as types from '../types';
 
 
@@ -151,8 +151,8 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         `);
         e.setAttribute('class', 'hint');
 
-        // TODO: this isn't quite right, ends up in weird places
-        const angle = angleInCurve(leftPos, pos, rightPos) + Math.PI / 2;
+        // Move this fancy new curved line slightly into the angle we've just created.
+        const angle = Math.atan2(leftPos.y - rightPos.y, leftPos.x - rightPos.x) - (Math.PI / 2);
         e.setAttribute('transform', `translate(${Math.cos(angle) * 4} ${Math.sin(angle) * 4})`);
 
         this.#groupLines.append(e);
