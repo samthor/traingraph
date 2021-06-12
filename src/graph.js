@@ -63,6 +63,9 @@ function virtIsLess(a, b) {
 }
 
 
+/**
+ * @implements {types.GraphType}
+ */
 export class Graph {
   /**
    * @type {Map<string, EdgeData>}
@@ -80,7 +83,7 @@ export class Graph {
 
   /**
    * @param {number} length
-   * @return {string}
+   * @return {{edge: string, lowNode: string, highNode: string}}
    */
   add(length) {
     if (length <= 0) {
@@ -98,29 +101,25 @@ export class Graph {
 
     this.#byEdge.set(id, { id, length, virt: [virt], node: [low, high] });
 
-    return id;
+    return {edge: id, lowNode: low.id, highNode: high.id};
   }
 
   /**
    * @param {string} edge
-   * @param {0|1} end
+   * @return {{lowNode: string, highNode: string}}
    */
-  endNode(edge, end) {
+  endNodesFor(edge) {
     const data = this.#dataForEdge(edge);
-    if (end) {
-      const i = data.node.length - 1;
-      return data.node[i].id;
-    }
-    return data.node[0].id;
+    const i = data.node.length - 1;
+    return {lowNode: data.node[0].id, highNode: data.node[i].id};
   }
 
   /**
    * @param {string} edge
    * @param {number} at
-   * @param {number} within +/- value to find best within
-   * @return {{id: string, at: number}?} node id and position, or none
+   * @return {types.AtNode}
    */
-  find(edge, at, within) {
+  findNode(edge, at) {
     const data = this.#dataForEdge(edge);
 
     const all = data.virt.slice().map((virt, index) => {
@@ -129,11 +128,75 @@ export class Graph {
     all.push({at: 1.0, rel: Math.abs(1.0 - at), id: data.node[all.length].id});
     all.sort(({rel: a}, {rel: b}) => a - b);
 
-    if (all[0].rel > within) {
-      return null;
+    const {id: node} = all[0];
+    return this.nodeOnEdge(edge, node);
+  }
+
+  /**
+   * @param {string} edge
+   * @param {number} at
+   * @return {types.AtNode}
+   */
+  nodeAround(edge, at) {
+    const data = this.#dataForEdge(edge);
+
+    if (at < 0.0 || at > 1.0) {
+      return {
+        edge,
+        at,
+        node: '',
+        priorNode: '',
+        afterNode: '',
+      };
     }
-    const {id, at: foundAt} = all[0];
-    return {id, at: foundAt};
+
+    // TODO: binary search
+    for (let i = 0; i <= data.virt.length; ++i) {
+      const check = data.virt[i]?.at ?? 1.0;
+
+      if (at === check) {
+        return {
+          edge,
+          at,
+          node: data.node[i].id,
+          priorNode: data.node[i - 1]?.id ?? '',
+          afterNode: data.node[i + 1]?.id ?? '',
+        };
+      }
+
+      if (at < check) {
+        return {
+          edge,
+          at,
+          node: '',
+          priorNode: data.node[i - 1].id,
+          afterNode: data.node[i].id,
+        };
+      }
+    }
+    throw new Error(`should not get here`);
+  }
+
+  /**
+   * @param {string} edge
+   * @param {string} node
+   * @return {types.AtNode}
+   */
+  nodeOnEdge(edge, node) {
+    const edgeData = this.#dataForEdge(edge);
+
+    const index = edgeData.node.findIndex((cand) => cand.id === node);
+    if (index === -1) {
+      throw new Error(`node not on edge: edge=${edge} node=${node}`);
+    }
+
+    return {
+      edge,
+      at: edgeData.virt[index]?.at ?? 1.0,
+      node: edgeData.node[index].id,
+      priorNode: edgeData.node[index - 1]?.id ?? '',
+      afterNode: edgeData.node[index + 1]?.id ?? '',
+    };
   }
 
   /**
@@ -141,7 +204,7 @@ export class Graph {
    * @param {number} at
    * @param {boolean} join
    */
-  split(edge, at, join) {
+  splitEdge(edge, at, join = true) {
     const data = this.#dataForEdge(edge);
 
     // TODO: binary search
@@ -185,46 +248,7 @@ export class Graph {
       }
     }
 
-    return {id: newNode.id, at};
-  }
-
-  /**
-   * @param {string} edge
-   * @param {number} at
-   * @return {{node: string, priorNode: string, afterNode: string}}
-   */
-  nodeAround(edge, at) {
-    const data = this.#dataForEdge(edge);
-
-    if (at < 0.0 || at > 1.0) {
-      return {
-        node: '',
-        priorNode: '',
-        afterNode: '',
-      };
-    }
-
-    // TODO: binary search
-    for (let i = 0; i <= data.virt.length; ++i) {
-      const check = data.virt[i]?.at ?? 1.0;
-
-      if (at === check) {
-        return {
-          node: data.node[i].id,
-          priorNode: data.node[i - 1]?.id ?? '',
-          afterNode: data.node[i + 1]?.id ?? '',
-        };
-      }
-
-      if (at < check) {
-        return {
-          node: '',
-          priorNode: data.node[i - 1].id,
-          afterNode: data.node[i].id,
-        };
-      }
-    }
-    throw new Error(`should not get here`);
+    return {node: newNode.id, at};
   }
 
   /**
@@ -294,6 +318,7 @@ export class Graph {
           out.push({
             edge: edgeId,
             at: 1.0,
+            node: nodeId,
             priorNode: nodeBefore.id,
             afterNode: '',
           });
@@ -303,6 +328,7 @@ export class Graph {
           out.push({
             edge: edgeId,
             at: virtAfter.at,
+            node: nodeId,
             priorNode: nodeBefore?.id ?? '',
             afterNode: nodeAfter.id,
           });
@@ -372,6 +398,11 @@ export class Graph {
     const left = virtIsLess(virtToA, virtToB) ? virtToA : virtToB;
     const right = left === virtToA ? virtToB : virtToA;
 
+    for (const existingPair of viaData.pairs) {
+      if (existingPair[0] === left && existingPair[1] === right) {
+        throw new Error(`already paired: ${a} (${via}) ${b}`);
+      }
+    }
     viaData.pairs.push([left, right]);
   }
 
@@ -428,7 +459,7 @@ export class Graph {
   #dataForNode = (node) => {
     const d = this.#byNode.get(node);
     if (d === undefined) {
-      throw new Error(`missing data`);
+      throw new Error(`missing data for node ${node}`);
     }
     return d;
   };

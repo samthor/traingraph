@@ -56,6 +56,7 @@ function distance(point, low, high) {
 }
 
 
+
 export class TrainGame extends EventTarget {
   #g = new Graph();
 
@@ -97,22 +98,19 @@ export class TrainGame extends EventTarget {
    */
   add(low, high) {
     const length = Math.hypot(low.x - high.x, low.y - high.y);
-    const id = this.#g.add(length);
+    const {edge, lowNode, highNode} = this.#g.add(length);
 
     const line = {
       low: {x: low.x, y: low.y},
       high: {x: high.x, y: high.y},
       length,
-      id,
+      id: edge,
     };
-    this.#lines.set(id, line);
+    this.#lines.set(edge, line);
 
     // We have to work out if each end/both sides were actually a touch on a real node and merge.
-    const nodes = [low, high].map((end, index) => {
-      if (index !== 0 && index !== 1) {
-        throw new Error(`bad index`);
-      }
-      const nodeId = this.#g.endNode(id, index);
+    const nodes = [low, high].map((end) => {
+      const nodeId = (end === low ? lowNode : highNode);
       if (end.line === null) {
         return nodeId;  // nothing to merge, this is _our_ node
       }
@@ -121,11 +119,11 @@ export class TrainGame extends EventTarget {
 
       // We have to split the other line, because the search wasn't pointing at an actual node.
       if (otherNodeId === '') {
-        const split = this.#g.split(end.line.id, end.offset, true);
-        otherNodeId = split.id;
+        const split = this.#g.splitEdge(end.line.id, end.offset);
+        otherNodeId = split.node;
       }
 
-      // Merge this end with the split.
+      // Merge this end with the split. Return the winning node.
       return this.#g.mergeNode(nodeId, otherNodeId);
     });
 
@@ -205,11 +203,11 @@ export class TrainGame extends EventTarget {
       bestNodeId = '';
 
       const buffer = bufferReal / line.length;
-      const found = this.#g.find(line.id, alongLine, buffer);
+      const found = this.#g.findNode(line.id, alongLine);
 
-      if (found !== null) {
+      if (Math.abs(alongLine - found.at) < buffer) {
         bestLineOffset = found.at;
-        bestNodeId = found.id;
+        bestNodeId = found.node;
       }
 //      console.warn('got best', bestLineOffset, 'found', buffer, found);
     }
@@ -240,23 +238,17 @@ export class TrainGame extends EventTarget {
 
     // other lines are either: all lines at node, or a single line we're _about_ to join
 
-    /** @type {types.AtNode[]} */
+    /** @type {{edge: string, priorNode: string, afterNode: string}[]} */
     let allLines;
     if (find.nodeId) {
       allLines = this.#g.linesAtNode(find.nodeId);
     } else {
       const around = this.#g.nodeAround(line.id, find.offset);
-      allLines = [
-        {
-          edge: line.id,
-          at: find.offset,
-          ...around,
-        },
-      ];
+      allLines = [around];
     }
 
     for (const raw of allLines) {
-      const {edge: lineId, at} = raw;
+      const {edge: lineId} = raw;
 
       const line = this.#lines.get(lineId);
       if (!line) {
