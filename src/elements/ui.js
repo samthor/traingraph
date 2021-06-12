@@ -1,13 +1,13 @@
 
 
 import { sharedGame } from '../shared';
-import { along, TrainGame, zeroLineSearch } from '../game';
+import { along, zeroLineSearch } from '../game';
 import * as types from '../types';
 
 
 
 
-export class TrainGraphElement extends HTMLElement {
+export class TrainUiElement extends HTMLElement {
   #game = sharedGame;
 
   #ratio = 1.0;
@@ -135,7 +135,6 @@ circle.node {
       this.#groupLines.append(e);
 
       const pairs = this.#game.pairsAtNode(node);
-      console.warn('at node', node, 'got pairs', pairs);
       pairs.forEach(([left, right]) => {
         const leftPos = this.#game.nodePos(left);
         const rightPos = this.#game.nodePos(right);
@@ -272,4 +271,4 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
 
 }
 
-customElements.define('tg-graph', TrainGraphElement);
+customElements.define('tg-ui', TrainUiElement);

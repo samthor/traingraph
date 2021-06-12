@@ -23,13 +23,14 @@ function lerp(low, high, ratio) {
 
 
 /**
+ * Moves from low->high along a fraction of the distance.
+ *
  * @param {types.Point} low
  * @param {types.Point} high
  * @param {number} unit
  */
 export function along(low, high, unit) {
   const dist = hypotDist(low, high);
-  console.warn('along is', unit / dist);
   return lerp(low, high, unit / dist);
 }
 
