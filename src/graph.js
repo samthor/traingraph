@@ -151,7 +151,7 @@ export class Graph {
     }
 
     // TODO: binary search
-    for (let i = 0; i <= data.virt.length; ++i) {
+    for (let i = 0; i < data.node.length; ++i) {
       const check = data.virt[i]?.at ?? 1.0;
 
       if (at === check) {
@@ -301,39 +301,11 @@ export class Graph {
 
     for (const edgeId of data.holder) {
       const edgeData = this.#dataForEdge(edgeId);
-
-      edgeData.node.forEach((cand, index) => {
-        if (nodeId !== cand.id) {
-          return;
+      for (const cand of edgeData.node) {
+        if (nodeId === cand.id) {
+          out.push(this.nodeOnEdge(edgeId, nodeId));
         }
-        const nodeBefore = edgeData.node[index - 1] ?? null;
-        const nodeAfter = edgeData.node[index + 1] ?? null;
-
-        // we found this node in its holder, see where it is
-        if (nodeAfter === null) {
-          if (nodeBefore === null) {
-            throw new Error(`must have two nodes`)
-          }
-          // at the end: it's at 1.0
-          out.push({
-            edge: edgeId,
-            at: 1.0,
-            node: nodeId,
-            priorNode: nodeBefore.id,
-            afterNode: '',
-          });
-        } else {
-          // in the middle (or start, as first virt is always 0.0)
-          const virtAfter = edgeData.virt[index];
-          out.push({
-            edge: edgeId,
-            at: virtAfter.at,
-            node: nodeId,
-            priorNode: nodeBefore?.id ?? '',
-            afterNode: nodeAfter.id,
-          });
-        }
-      });
+      }
     }
 
     if (out.length === 0) {
@@ -349,8 +321,19 @@ export class Graph {
    * @return {types.AtNode}
    */
   nodePos(nodeId) {
-    // TODO: yes this is bad
-    return this.linesAtNode(nodeId)[0];
+    const data = this.#dataForNode(nodeId);
+
+    // TODO: same loop as `linesAtNode` but we bail early
+    for (const edgeId of data.holder) {
+      const edgeData = this.#dataForEdge(edgeId);
+      for (const cand of edgeData.node) {
+        if (nodeId === cand.id) {
+          return this.nodeOnEdge(edgeId, nodeId);
+        }
+      }
+    }
+
+    throw new Error(`missing node`);
   }
 
   /**
