@@ -1,6 +1,7 @@
 
 import { Graph } from './graph.js';
 import * as helperMath from './helper/math.js';
+import { SnakeMan } from './snakeman.js';
 import * as types from './types.js';
 
 
@@ -13,6 +14,7 @@ const maxAngle = Math.PI / 3;
 
 export class TrainGame extends EventTarget {
   #g = new Graph();
+  #trains = new SnakeMan(this.#g);
 
   get graph() {
     return this.#g;
@@ -20,6 +22,10 @@ export class TrainGame extends EventTarget {
 
   get nodes() {
     return this.#g.allNodes();
+  }
+
+  get trains() {
+    return this.#trains.allSnakes();
   }
 
   /**
@@ -45,6 +51,17 @@ export class TrainGame extends EventTarget {
 
   /** @type {Map<string, types.Line>} */
   #lines = new Map();
+
+  /**
+   * @param {string} line
+   */
+  lookupLine(line) {
+    const data = this.#lines.get(line);
+    if (data === undefined) {
+      throw new Error(`unknown line: ${line}`);
+    }
+    return data;
+  }
 
   /**
    * @param {types.LineSearch} low
@@ -233,6 +250,21 @@ export class TrainGame extends EventTarget {
    */
   get lines() {
     return [...this.#lines.values()];
+  }
+
+  /**
+   * @param {types.LineSearch} at
+   */
+  addTrain(at) {
+    if (!at.line) {
+      throw new Error(`must be added on line`);
+    }
+
+    const train = this.#trains.addSnake(at.line.id, at.offset, 1);
+
+    this.#trains.expand(train, 1, 0.1);
+
+    this.dispatchEvent(new CustomEvent('update'));
   }
 
 }

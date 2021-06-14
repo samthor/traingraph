@@ -40,6 +40,9 @@ export class TrainUiElement extends HTMLElement {
 
     root.innerHTML = `
 <style>
+:host {
+  display: block;
+}
 circle {
   fill: red;
 }
@@ -66,6 +69,12 @@ circle.node {
   stroke-linecap: round;
   fill: transparent;
 }
+line.train {
+  stroke: purple;
+  stroke-width: 6px;
+  stroke-linecap: round;
+  fill: transparent;
+}
 #lines circle {
   fill: #333;
 }
@@ -76,14 +85,19 @@ circle.node {
   stroke: blue;
   stroke-width: 4px;
 }
+.outer:focus {
+  outline: 0;
+}
 </style>
-<svg>
-  <g id="lines"></g>
-  <g id="joins"></g>
-  <line id="line" />
-  <circle r="4" id="start" />
-  <circle r="4" id="nearest" />
-</svg>
+<div class="outer" tabindex="-1">
+  <svg>
+    <g id="lines"></g>
+    <g id="joins"></g>
+    <line id="line" />
+    <circle r="4" id="start" />
+    <circle r="4" id="nearest" />
+  </svg>
+</div>
     `;
 
     const s = /** @type {SVGSVGElement} */ (root.querySelector('svg'));
@@ -107,8 +121,10 @@ circle.node {
     });
     ro.observe(this);
 
-    s.addEventListener('pointermove', this.#onPointerMove);
-    s.addEventListener('pointerdown', this.#onPointerDown);
+    const holderDiv = /** @type {HTMLElement} */ (s.parentElement);
+    holderDiv.addEventListener('pointermove', this.#onPointerMove);
+    holderDiv.addEventListener('pointerdown', this.#onPointerDown);
+    holderDiv.addEventListener('keydown', this.#onKeyDown);
 
     this.#game.addEventListener('update', this.#onUpdateGame);
   }
@@ -155,7 +171,23 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
 
         this.#groupLines.append(e);
       });
+    }
 
+    for (const train of this.#game.trains) {
+      for (const part of train.parts) {
+        const line = this.#game.lookupLine(part.edge);
+
+        const start = helperMath.lerp(line.low, line.high, part.low);
+        const end = helperMath.lerp(line.low, line.high, part.high);
+
+        const e = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        e.setAttribute('x1', start.x / this.#ratio + 'px');
+        e.setAttribute('y1', start.y / this.#ratio + 'px');
+        e.setAttribute('x2', end.x / this.#ratio + 'px');
+        e.setAttribute('y2', end.y / this.#ratio + 'px');
+        e.setAttribute('class', 'train');
+        this.#groupLines.append(e);
+      }
     }
   };
 
@@ -266,6 +298,21 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     }
 
     this.#onPointerMove(event);
+  };
+
+  /**
+   * @param {KeyboardEvent} event
+   */
+  #onKeyDown = (event) => {
+    switch (event.key) {
+      case 's':
+        if (this.#state !== '' || !this.#nearestPoint.line) {
+          return;
+        }
+
+        this.#game.addTrain(this.#nearestPoint);
+        break;
+    }
   };
 
 }

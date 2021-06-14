@@ -1,16 +1,6 @@
 
 import * as types from './types.js';
-
-
-const nextGlobalId = (function() {
-  let globalId = 0;
-  return (prefix = '?') => {
-    prefix = prefix.toUpperCase();
-
-    ++globalId;
-    return `${prefix}${globalId.toString(36)}`;
-  };
-}());
+import { nextGlobalId } from './helper/id.js';
 
 
 /**
@@ -83,7 +73,7 @@ export class Graph {
 
   /**
    * @param {number} length
-   * @return {{edge: string, lowNode: string, highNode: string}}
+   * @return {types.EdgeDetails}
    */
   add(length) {
     if (length <= 0) {
@@ -101,31 +91,42 @@ export class Graph {
 
     this.#byEdge.set(id, { id, length, virt: [virt], node: [low, high] });
 
-    return {edge: id, lowNode: low.id, highNode: high.id};
+    return this.edgeDetails(id);
   }
 
   /**
    * @param {string} edge
-   * @return {{lowNode: string, highNode: string}}
+   * @return {types.EdgeDetails}
    */
-  endNodesFor(edge) {
+  edgeDetails(edge) {
     const data = this.#dataForEdge(edge);
     const i = data.node.length - 1;
-    return {lowNode: data.node[0].id, highNode: data.node[i].id};
+    return {
+      lowNode: data.node[0].id,
+      highNode: data.node[i].id,
+      length: data.length,
+      edge,
+    };
   }
 
   /**
    * @param {string} edge
    * @param {number} at
+   * @param {-1|0|1} dir
    * @return {types.AtNode}
    */
-  findNode(edge, at) {
+  findNode(edge, at, dir = 0) {
     const data = this.#dataForEdge(edge);
 
-    const all = data.virt.slice().map((virt, index) => {
+    let all = data.virt.slice().map((virt, index) => {
       return {at: virt.at, rel: Math.abs(virt.at - at), id: data.node[index].id};
     });
     all.push({at: 1.0, rel: Math.abs(1.0 - at), id: data.node[all.length].id});
+
+    if (dir) {
+      all = all.filter((virt) => Math.sign(virt.at - at) === dir);
+      // TODO: don't need to sort in tihs case
+    }
     all.sort(({rel: a}, {rel: b}) => a - b);
 
     const {id: node} = all[0];
@@ -202,9 +203,9 @@ export class Graph {
   /**
    * @param {string} edge
    * @param {number} at
-   * @param {boolean} join
+   * @return {types.AtNode}
    */
-  splitEdge(edge, at, join = true) {
+  splitEdge(edge, at) {
     const data = this.#dataForEdge(edge);
 
     // TODO: binary search
@@ -233,10 +234,9 @@ export class Graph {
     data.virt.splice(i, 0, newVirt);
     data.node.splice(i, 0, newNode);
 
-    if (join) {
-      // these will always sort this way as edge is the same
-      pairs.push([data.virt[before], data.virt[i]]);
-    }
+    // TODO: this is "special" and should never be deletable. Can we mark this somehow?
+    // These will always sort this way as edge is the same, and we know the order already.
+    pairs.push([data.virt[before], data.virt[i]]);
 
     // afterNode may incorrectly point to virt[i], not virt[i+1] (new one)
     for (const p of afterNode.pairs) {
@@ -248,7 +248,13 @@ export class Graph {
       }
     }
 
-    return {node: newNode.id, at};
+    return {
+      edge,
+      at,
+      node: newNode.id,
+      priorNode: data.node[i - 1]?.id,
+      afterNode: data.node[i + 1]?.id,
+    };
   }
 
   /**
@@ -349,9 +355,11 @@ export class Graph {
     const remain = dataA.holder.size > dataB.holder.size ? dataA : dataB;
     const remove = (remain === dataA ? dataB : dataA);
 
-    remain.pairs.push(...remove.pairs.splice(0, remove.pairs.length));
-
     remove.holder.forEach((otherEdge) => {
+      if (remain.holder.has(otherEdge)) {
+        throw new Error(`cannot merge nodes on same edge`);
+      }
+
       remain.holder.add(otherEdge);
 
       const data = this.#dataForEdge(otherEdge);
@@ -362,8 +370,10 @@ export class Graph {
         return node;
       });
     });
-    this.#byNode.delete(remove.id);
 
+    remain.pairs.push(...remove.pairs.splice(0, remove.pairs.length));
+
+    this.#byNode.delete(remove.id);
     return remain.id;
   }
 
@@ -375,8 +385,8 @@ export class Graph {
   join(a, via, b) {
     const viaData = this.#dataForNode(via);
 
-    const virtToA = this.#virtBetween(a, via);
-    const virtToB = this.#virtBetween(b, via);
+    const {virt: virtToA} = this.#virtBetween(a, via);
+    const {virt: virtToB} = this.#virtBetween(b, via);
 
     const left = virtIsLess(virtToA, virtToB) ? virtToA : virtToB;
     const right = left === virtToA ? virtToB : virtToA;
@@ -390,9 +400,39 @@ export class Graph {
   }
 
   /**
+   * @param {string} lowNode
+   * @param {string} highNode
+   */
+  findSegment(lowNode, highNode) {
+    const v = this.#virtBetween(lowNode, highNode);
+    const edgeData = this.#dataForEdge(v.virt.edge);
+
+    let segmentLength;
+    if (v.dir === +1) {
+      const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? 1.0;
+      segmentLength =  nextVirtAt - v.virt.at;
+    } else {
+      const prevVirtAt = edgeData.virt[v.index - 1].at;
+      segmentLength = v.virt.at - prevVirtAt;
+    }
+
+    return {
+      edge: v.virt.edge,
+      at: v.virt.at,
+      dir: v.dir,
+      segmentLength,
+    };
+  }
+
+  /**
+   * Find the virtual segment between these two nodes. This _feels_ ambiguous but is actually
+   * concrete because we don't allow multiple nodes to be merged onto the same edge.
+   *
+   * Returns the direction between a/b, +ve for a => b, -ve for b => a.
+   *
    * @param {string} a node
    * @param {string} b node
-   * @return {Virt}
+   * @return {{virt: Virt, index: number, dir: -1|1}}
    */
   #virtBetween = (a, b) => {
     const dataA = this.#dataForNode(a);
@@ -420,11 +460,20 @@ export class Graph {
         throw new Error(`bad data`);
       }
 
+      /** @type {-1|1} */
+      let dir;
+      let index;
       if (dataEdge.node[indexOfA - 1]?.id === b) {
-        return dataEdge.virt[indexOfA - 1];
+        index = indexOfA - 1;
+        dir = -1;
       } else if (dataEdge.node[indexOfA + 1]?.id === b) {
-        return dataEdge.virt[indexOfA];
+        index = indexOfA;
+        dir = +1;
+      } else {
+        continue;
       }
+
+      return {virt: dataEdge.virt[index], index, dir};
     }
 
     throw new Error(`missing virt`);

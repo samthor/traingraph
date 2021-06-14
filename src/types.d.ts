@@ -10,18 +10,18 @@ export interface GraphType {
   /**
    * Adds a new edge of given length to this string. Adds a new edge and its low/high nodes.
    */
-  add(length: number): {edge: string, lowNode: string, highNode: string};
+  add(length: number): EdgeDetails;
 
   /**
    * Finds the low and high nodes for this edge. These nodes are at [0,1] respectively.
    */
-  endNodesFor(edge: string): {lowNode: string, highNode: string};
+  edgeDetails(edge: string): EdgeDetails;
 
   /**
    * Finds the nearest edge node to the given position. Edges always have at least a start and end
    * node, so this always returns a value.
    */
-  findNode(edge: string, at: number): AtNode;
+  findNode(edge: string, at: number, dir?: -1|0|1): AtNode;
 
   /**
    * Finds any exact matching node, or, the absence of a node. Returns the optional prior and
@@ -50,6 +50,7 @@ export interface GraphType {
 
   /**
    * Merges two nodes, including their existing pairs. One node wins, returns the resulting node.
+   * This cannot merge two nodes on the same edge (edge that wraps on itself).
    *
    * @return the resulting node, the other is removed
    */
@@ -68,10 +69,23 @@ export interface GraphType {
   pairsAtNode(node: string): Iterable<[string, string]>;
 
   /**
-   * Splits the given edge at the specified position and creates a brand new node. By default, this
-   * joins the two resulting virtual edges.
+   * Splits the given edge at the specified position and creates a brand new node. This will always
+   * join the two resulting virtual edges (the long edge must remain continuous).
    */
-  splitEdge(edge: string, at: number, join?: boolean): {node: string, at: number};
+  splitEdge(edge: string, at: number): AtNode;
+
+  /**
+   * Finds the unambiguous segment between these two nodes.
+   */
+  findSegment(lowNode: string, highNode: string): {edge: string, at: number, dir: -1|1, segmentLength: number};
+}
+
+
+export interface EdgeDetails {
+  edge: string;
+  highNode: string;
+  lowNode: string;
+  length: number;
 }
 
 
