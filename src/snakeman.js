@@ -5,6 +5,7 @@ import * as types from './types';
 
 /**
  * @typedef {{
+ *   snake: string,
  *   edge: string,
  *   dir: -1|1,
  *   low: number,
@@ -26,8 +27,26 @@ export var SnakePart;
 export var Snake;
 
 
+/**
+ * @param {SnakePart} a
+ * @param {SnakePart} b
+ */
+function compareSnakePart(a, b) {
+  if (a.edge !== b.edge) {
+    if (a.edge < b.edge) {
+      return -1;
+    }
+    return +1;
+  }
+  return a.low - b.low;
+}
+
+
 export class SnakeMan {
   #g;
+
+  /** @type {Map<string, SnakePart[]>} */
+  #reservedEdge = new Map();
 
   /** @type {Map<string, Snake>} */
   #bySnake = new Map();
@@ -57,16 +76,22 @@ export class SnakeMan {
     }
 
     const id = nextGlobalId('S');
+    const startPart = {
+      snake: id,
+      edge,
+      dir,
+      high: at,
+      low: at,
+    };
+
+    if (!this.#reserve(startPart)) {
+      return '';
+    }
 
     const s = {
       id,
       length: 0,
-      parts: [{
-        edge,
-        dir,
-        high: at,
-        low: at,
-      }],
+      parts: [startPart],
     };
 
     this.#bySnake.set(id, s);
@@ -77,8 +102,47 @@ export class SnakeMan {
    * @param {string} snake
    */
   removeSnake(snake) {
+    const data = this.#dataForSnake(snake);
+
+    // Remove reserved edge parts of this snake.
+    data.parts.forEach((part) => this.#unreserve(part));
+
     this.#bySnake.delete(snake);
   }
+
+  /**
+   * @param {SnakePart} part
+   */
+  #unreserve = (part) => {
+    const reserved = this.#reservedEdge.get(part.edge);
+    if (reserved === undefined) {
+      throw new Error(`can't unreserve, nothing for edge?`);
+    }
+    const index = reserved.indexOf(part);
+    if (index === -1) {
+      throw new Error(`can't unreserve, not found?`);
+    }
+    reserved.splice(index, 1);
+    if (reserved.length === 0) {
+      this.#reservedEdge.delete(part.edge);
+    }
+  };
+
+  /**
+   * @param {SnakePart} part
+   */
+  #reserve = (part) => {
+    const existing = this.#reservedEdge.get(part.edge);
+    if (existing === undefined) {
+      this.#reservedEdge.set(part.edge, [part]);
+      return true;
+    }
+
+    // TODO: should binary insert
+    existing.push(part);
+    existing.sort(compareSnakePart);
+    return true;
+  };
 
   /**
    * @param {string} snake
@@ -176,6 +240,7 @@ export class SnakeMan {
 
       // Remove the contents of the whole node.
       dec -= partUse;
+      this.#unreserve(part);
       data.parts.splice(index, 1);
     }
 
@@ -206,6 +271,9 @@ export class SnakeMan {
 
       // console.warn('found next node', findFrom, 'node', nodeInDir, 'delta', deltaToNode);
 
+      // TODO: Check if there's already a reservation in the direction we're trying to go.
+
+
 
       // This change fits neatly before the next node in this direction.
       if (inc <= deltaToNode) {
@@ -219,7 +287,7 @@ export class SnakeMan {
       }
 
       // Move completely towards this node.
-      // TODO: "mark" this node as being occupied
+      // TODO: "mark" this node as being occupied (it can be occupied by many?)
       let fromNode = '';
       if (effectiveDir === 1) {
         part.high = nodeInDir.at;
@@ -230,9 +298,8 @@ export class SnakeMan {
       }
       inc -= deltaToNode;
 
-      // Catch not having a real node so we can keep extending awkwardly off the edge.
+      // Catch not having a real node so we know there's no choices.
       const pairsAtNode = nodeInDir.node ? Array.from(this.#g.pairsAtNode(nodeInDir.node)) : [];
-
       const choices = pairsAtNode.filter(([left, right]) => {
         return left === fromNode || right === fromNode;
       }).map(([left, right]) => {
@@ -255,11 +322,13 @@ export class SnakeMan {
 
       const seg = this.#g.findSegment(choice.via, choice.to);
       const added = {
+        snake,
         edge: seg.edge,
         dir: /** @type {1|-1} */ (seg.dir * end),
         low: seg.at,
         high: seg.at,
       };
+      this.#reserve(added);
 
       if (end === 1) {
         data.parts.push(added);
