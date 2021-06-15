@@ -51,7 +51,6 @@ export class SnakeMan {
   /** @type {Map<string, SnakePart[]>} */
   #reservedEdge = new Map();
 
-  // TODO: nodes currently being touched or intersected by snakes
   /** @type {Map<string, Set<SnakePart>>} */
   #reservedNode = new Map();
 
