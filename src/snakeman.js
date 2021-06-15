@@ -3,6 +3,10 @@ import { nextGlobalId } from './helper/id';
 import * as types from './types';
 
 
+// TODO:
+// - subscribe to node changes, if a node is added under a reservation it must be split
+
+
 /**
  * @typedef {{
  *   snake: string,
@@ -101,35 +105,33 @@ export class SnakeMan {
     const data = this.#dataForSnake(snake);
 
     // Remove reserved edge parts of this snake.
-    data.parts.forEach((part) => this.#unreserve(part));
+    data.parts.forEach((part) => {
+      this.#unreserve(part);
+      this.#unreserveNode(part, part.lowNode);
+      this.#unreserveNode(part, part.highNode);
+    });
 
     this.#bySnake.delete(snake);
   }
 
   /**
-   * Doesn't add the reservation to `part`, but confirms it exists.
-   *
    * @param {SnakePart} part
    * @param {string} node
-   * @return {boolean} whether already reserved by another
    */
   #reserveNode = (part, node) => {
-    if (!node || !(part.highNode === node || part.lowNode === node)) {
-      throw new Error(`can't reserve empty node`);
+    if (!node) {
+      return false;
+    }
+    if (!(part.highNode === node || part.lowNode === node)) {
+      throw new Error(`can't reserve node not on part: ${node}`);
     }
 
     const existing = this.#reservedNode.get(node);
     if (existing === undefined) {
       this.#reservedNode.set(node, new Set([part]));
-      return false;  // wasn't already reserved
+    } else {
+      existing.add(part);
     }
-
-    if (existing.size === 1 && existing.has(part)) {
-      return false;
-    }
-
-    existing.add(part);
-    return true;  // already reserved
   };
 
   /**
@@ -384,78 +386,116 @@ export class SnakeMan {
 
     let inc = by;
     while (inc > 0) {
+      // Pick the correct part end to work on.
       const part = end === 1 ? data.parts[data.parts.length - 1] : data.parts[0];
 
+      // What way are we moving on this part, towards front or back?
       const effectiveDir = /** @type {-1|1} */ (end * part.dir);
       const findFrom = effectiveDir === 1 ? part.high : part.low;
 
-      const details = this.#g.edgeDetails(part.edge);
-      const unitInc = (inc / details.length);
+      // We might already be at the possible extent of this part. If so we skip the move step and
+      // go straight to choice.
+      const alreadyAtNode = (effectiveDir === 1 ? part.highNode : part.lowNode);
+      if (!alreadyAtNode) {
+        const otherDirNode = effectiveDir === 1 ? part.lowNode : part.highNode;
 
-      const nodeInDir = this.#g.findNode(part.edge, findFrom, effectiveDir);
-      const unitDeltaToNode = Math.abs(findFrom - nodeInDir.at);
-      const deltaToNode = unitDeltaToNode * details.length;
+        const details = this.#g.edgeDetails(part.edge);
+        const unitInc = (inc / details.length);
 
-      // console.warn('found next node', findFrom, 'node', nodeInDir, 'delta', deltaToNode);
+        // We move in the direction of either of the following options:
+        //  A: the next adjacent reservation (will stop)
+        //  B: the next adjacent node (might stop)
 
-      // Check if there's already a reservation in the direction we're trying to go.
-      const adjacent = this.#adjacentReservation(part, effectiveDir);
-      if (adjacent.dist < Math.min(unitDeltaToNode, unitInc)) {
-        if (effectiveDir === 1) {
-          part.high += adjacent.dist;
+        // Option A: the next adjacent reservation
+        const adjacent = this.#adjacentReservation(part, effectiveDir);
+
+        // Option B: the next adjacent node (will always exist)
+        /** @type {types.AtNode} */
+        let nodeInDir;
+        if (otherDirNode) {
+          // If one side is already on a node, just find the next one along.
+          const details = this.#g.nodeOnEdge(part.edge, otherDirNode);
+          const cand = effectiveDir === 1 ? details.afterNode : details.priorNode;
+          nodeInDir = this.#g.nodeOnEdge(part.edge, cand);
         } else {
-          part.low -= adjacent.dist;
+          // We're in the middle of this segment, so we have to search.
+          nodeInDir = this.#g.findNode(part.edge, findFrom, effectiveDir);
+
+          // ... special-case "node at same location", which can happen depending on how we were
+          // added. Try to move past this node _if possible_ (i.e., not at end of edge).
+          if (nodeInDir.at === findFrom) {
+            const cand = effectiveDir === 1 ? nodeInDir.afterNode : nodeInDir.priorNode;
+            if (cand) {
+              nodeInDir = this.#g.nodeOnEdge(part.edge, cand);
+            }
+          }
         }
-        inc -= (adjacent.dist * details.length);
+        if (!nodeInDir.node) {
+          console.warn('got nodeInDir', nodeInDir, {findFrom, effectiveDir});
+          throw new Error(`should not be off end of node line`);
+        }
+        const unitDeltaToNode = Math.abs(findFrom - nodeInDir.at);
 
-        // console.debug('...exp blocked by reserv', inc / details.length, 'now', {low: part.low, high: part.high});
+        // Is the target actually before both the adjacent/nearby node? If so, this is our actual
+        // success case.
+        if (unitInc < Math.min(adjacent.dist, unitDeltaToNode)) {
+          if (effectiveDir === 1) {
+            part.high += unitInc;
+          } else {
+            part.low -= unitInc;
+          }
 
-        const actualInc = (by - inc);
-        data.length += actualInc;
-        return inc;
+          // Because floating-point was a bad choice, we return the original "by" value rather than
+          // attempting to assemble it later.
+          data.length += by;
+          return by;
+        }
+
+        // The adjacent reservation wins. This will stop the expansion because it's another train
+        // or something.
+        if (adjacent.other && adjacent.dist < unitDeltaToNode) {
+          if (effectiveDir === 1) {
+            part.high = adjacent.other.low;
+          } else {
+            part.low = adjacent.other.high;
+          }
+          inc -= (adjacent.dist * details.length);
+          break;
+        }
+
+        // Otherwise, we're going to abutt the next node.
+        if (effectiveDir === 1) {
+          part.high = nodeInDir.at;
+          part.highNode = nodeInDir.node;
+          this.#reserveNode(part, part.highNode);
+        } else {
+          part.low = nodeInDir.at;
+          part.lowNode = nodeInDir.node;
+          this.#reserveNode(part, part.lowNode);
+        }
+        inc -= (unitDeltaToNode * details.length);
+        continue;  // we get node correctly in next iteration
       }
 
-      // This change fits neatly before the next node in this direction.
-      if (inc <= deltaToNode) {
-        if (effectiveDir === 1) {
-          part.high += unitInc;
-        } else {
-          part.low -= unitInc;
-        }
-//        console.debug('...exp fits', inc / details.length, 'now', {low: part.low, high: part.high});
+      // We're at a node and need to make a choice!
+      const reservations = this.#reservedNode.get(alreadyAtNode);
+      if (reservations === undefined || !reservations.has(part)) {
+        throw new Error(`we weren't reserved in node reservations? ${alreadyAtNode}`);
+      }
+      if (reservations.size > 1) {
+        // Can't go past: more than one snake is here.
         break;
       }
 
-      // Move completely towards this node.
-      // TODO: "mark" this node as being occupied (it can be occupied by many?)
-      let wasAlreadyReserved;
-      let fromNode = '';
-      if (effectiveDir === 1) {
-        part.high = nodeInDir.at;
-        part.highNode = nodeInDir.node;
-        wasAlreadyReserved = this.#reserveNode(part, part.highNode);
-        fromNode = nodeInDir.priorNode;
-      } else {
-        part.low = nodeInDir.at;
-        part.lowNode = nodeInDir.node;
-        wasAlreadyReserved = this.#reserveNode(part, part.lowNode);
-        fromNode = nodeInDir.afterNode;
-      }
-      inc -= deltaToNode;
-
-      if (wasAlreadyReserved) {
-        console.debug('...exp blocked by already reserved node', inc / details.length, 'now', {low: part.low, high: part.high});
-        const actualInc = (by - inc);
-        data.length += actualInc;
-        return inc;
-      }
+      const nodeDetails = this.#g.nodeOnEdge(part.edge, alreadyAtNode);
+      const fromNode = part.highNode === alreadyAtNode ? nodeDetails.priorNode : nodeDetails.afterNode;
 
       // Catch not having a real node so we know there's no choices.
-      const pairsAtNode = nodeInDir.node ? Array.from(this.#g.pairsAtNode(nodeInDir.node)) : [];
+      const pairsAtNode = Array.from(this.#g.pairsAtNode(alreadyAtNode));
       const choices = pairsAtNode.filter(([left, right]) => {
         return left === fromNode || right === fromNode;
       }).map(([left, right]) => {
-        return {from: fromNode, via: nodeInDir.node, to: left === fromNode ? right : left};
+        return {from: fromNode, via: alreadyAtNode, to: left === fromNode ? right : left};
       });
 
       let choice = choices[0];
@@ -466,13 +506,12 @@ export class SnakeMan {
         console.warn('made random choice', choice);
       }
 
-      // If there's nowhere to go, then bail and report less increment.
+      // If there's nowhere to go, then bail.
       if (choice === undefined) {
-        const actualInc = (by - inc);
-        data.length += actualInc;
-        return actualInc;
+        break;
       }
 
+      // Create a new segment towards the choice that was just made.
       const seg = this.#g.findSegment(choice.via, choice.to);
       const added = {
         snake,
@@ -492,17 +531,17 @@ export class SnakeMan {
         this.#reserveNode(added, added.highNode);
       }
 
-      this.#reserve(added);
-
       if (end === 1) {
         data.parts.push(added);
       } else {
         data.parts.unshift(added);
       }
+      this.#reserve(added);
     }
 
-    data.length += by;
-    return by;
+    const actualInc = (by - inc);
+    data.length += actualInc;
+    return actualInc;
   };
 
   /**

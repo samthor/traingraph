@@ -266,8 +266,9 @@ export class TrainGame extends EventTarget {
       return false;  // could not reserve this part
     }
 
-    if (this.#trains.expand(train, 1, 0.1) !== 0.1) {
-      console.warn('couldn\'t expand:', at.offset);
+    const expanded = this.#trains.expand(train, 1, 0.1)
+    if (expanded !== 0.1) {
+      console.warn('couldn\'t expand:', at.offset, 'only got', expanded);
       this.#trains.removeSnake(train);
       return false;
     }

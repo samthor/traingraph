@@ -124,7 +124,10 @@ export class Graph {
     all.push({at: 1.0, rel: Math.abs(1.0 - at), id: data.node[all.length].id});
 
     if (dir) {
-      all = all.filter((virt) => Math.sign(virt.at - at) === dir);
+      all = all.filter((virt) => {
+        const s = Math.sign(virt.at - at);
+        return s === dir || s === 0;
+      });
       // TODO: don't need to sort in tihs case
 
       if (!all.length) {
