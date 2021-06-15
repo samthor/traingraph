@@ -126,6 +126,19 @@ export class Graph {
     if (dir) {
       all = all.filter((virt) => Math.sign(virt.at - at) === dir);
       // TODO: don't need to sort in tihs case
+
+      if (!all.length) {
+        const priorNode = dir === 1 ? data.node[data.node.length - 1].id : '';
+        const afterNode = dir === 1 ? '' : data.node[0].id;
+        return {
+          edge,
+          at,
+          node: '',
+          priorNode,
+          afterNode,
+        };
+      }
+
     }
     all.sort(({rel: a}, {rel: b}) => a - b);
 
@@ -407,18 +420,23 @@ export class Graph {
     const v = this.#virtBetween(lowNode, highNode);
     const edgeData = this.#dataForEdge(v.virt.edge);
 
-    let segmentLength;
-    if (v.dir === +1) {
-      const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? 1.0;
-      segmentLength =  nextVirtAt - v.virt.at;
-    } else {
-      const prevVirtAt = edgeData.virt[v.index - 1].at;
-      segmentLength = v.virt.at - prevVirtAt;
+    // let segmentLength;
+    // if (v.dir === +1) {
+    const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? 1.0;
+    const segmentLength = nextVirtAt - v.virt.at;
+    // } else {
+    //   const prevVirtAt = edgeData.virt[v.index].at;
+    //   segmentLength = v.virt.at - prevVirtAt;
+    // }
+
+    let at = v.virt.at;
+    if (v.dir === -1) {
+      at = nextVirtAt;
     }
 
     return {
       edge: v.virt.edge,
-      at: v.virt.at,
+      at,
       dir: v.dir,
       segmentLength,
     };

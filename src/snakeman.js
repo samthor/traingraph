@@ -78,29 +78,35 @@ export class SnakeMan {
     const data = this.#dataForSnake(snake);
 
     if (by === 0) {
-      return;
+      return data.length;
     } else if (by < 0) {
-      // Decrement by this much. Step through as many nodes as required.
-      let dec = -by;
-      while (data.length && dec > 0) {
-        const index = end === 1 ? 0 : data.parts.length - 1;
+      // Decrement by this much, but not such that the length could become negative. Step through
+      // as many nodes as required.
+      let dec = Math.min(-by, data.length);
+      while (data.length > 0 && dec > 0) {
+        const index = end === 1 ? data.parts.length - 1 : 0;
         const part = data.parts[index];
+        const details = this.#g.edgeDetails(part.edge);
 
-        const partUse = (part.high - part.low);
+        const effectiveDir = /** @type {-1|1} */ (end * part.dir);
+
+        // The part is in [0,1] space, so convert it to real space relative to its actual length.
+        const partUse = (part.high - part.low) * details.length;
 
         // The change fits in this node; modify it and we're done.
-        if (partUse < dec) {
-          if (part.dir === 1) {
-            part.high -= dec;
+        if (partUse >= dec) {
+          if (effectiveDir === 1) {
+            part.high -= dec / details.length;
           } else {
-            part.low += dec;
+            part.low += dec / details.length;
           }
           break;
         }
 
         // Don't allow the last element to be spliced out, the snake must always have length zero.
+        // TODO: does this ever fire? the `>=` above might catch it?
         if (data.parts.length === 1) {
-          if (part.dir === 1) {
+          if (effectiveDir === 1) {
             // high was front, move back to low
             part.high = part.low;
           } else {
@@ -115,7 +121,8 @@ export class SnakeMan {
         data.parts.splice(index, 1);
       }
 
-      return;
+      data.length += by;
+      return data.length;
     }
 
     if (end === -1) {
@@ -124,56 +131,67 @@ export class SnakeMan {
 
     let inc = by;
     while (inc > 0) {
+      const part = data.parts[data.parts.length - 1];
+      const findFrom = part.dir === 1 ? part.high : part.low;
 
-      const last = data.parts[data.parts.length - 1];
+      const details = this.#g.edgeDetails(part.edge);
 
-      const findFrom = last.dir === 1 ? last.high : last.low;
+      const nodeInDir = this.#g.findNode(part.edge, findFrom, part.dir);
+      const deltaToNode = Math.abs(findFrom - nodeInDir.at) * details.length;
 
-      const nodeInDir = this.#g.findNode(last.edge, findFrom, last.dir);
-      const deltaToNode = Math.abs(findFrom - nodeInDir.at);
+      const effectiveDir = /** @type {-1|1} */ (end * part.dir);
 
       // This change fits neatly before the next node in this direction.
       if (inc <= deltaToNode) {
-        if (last.dir === 1) {
-          last.high += inc;
+        if (effectiveDir === 1) {
+          part.high += inc / details.length;
         } else {
-          last.low -= inc;
+          part.low -= inc / details.length;
         }
+        // console.debug('...exp fits', inc / details.length, 'now', {low: last.low, high: last.high});
         break;
       }
 
       // Move completely towards this node.
       // TODO: "mark" this node as being occupied
       let fromNode = '';
-      if (last.dir === 1) {
-        inc -= (nodeInDir.at - last.high);
-        last.high = nodeInDir.at;
+      if (effectiveDir === 1) {
+        part.high = nodeInDir.at;
         fromNode = nodeInDir.priorNode;
       } else {
-        inc -= (last.low - nodeInDir.at);
-        last.low = nodeInDir.at;
+        part.low = nodeInDir.at;
         fromNode = nodeInDir.afterNode;
       }
+      inc -= deltaToNode * details.length;
 
-      const pairsAtNode = Array.from(this.#g.pairsAtNode(nodeInDir.node));
+      // console.debug('...moved TO node', nodeInDir, 'findFrom was', findFrom);
+
+      // Catch not having a real node so we can keep extending awkwardly off the edge.
+      const pairsAtNode = nodeInDir.node ? Array.from(this.#g.pairsAtNode(nodeInDir.node)) : [];
 
       // If there's nowhere to go, extend awkwardly off the end of this edge.
       if (!pairsAtNode.length) {
-        if (last.dir === 1) {
-          last.high += inc;
+        if (part.dir === 1) {
+          part.high += inc / details.length;
         } else {
-          last.low -= inc;
+          part.low -= inc / details.length;
         }
         break;
       }
 
-      const choices = pairsAtNode.map(([left, right]) => {
+      const choices = pairsAtNode.filter(([left, right]) => {
+        return left === fromNode || right === fromNode;
+      }).map(([left, right]) => {
         return {from: fromNode, via: nodeInDir.node, to: left === fromNode ? right : left};
       });
-      console.warn('choices are now', choices);
 
-      const choiceIndex = ~~(Math.random() * choices.length);
-      const choice = choices[choiceIndex];
+      let choice = choices[0];
+      if (choices.length > 1) {
+        // TODO: we make random choice rather than asking client
+        const choiceIndex = ~~(Math.random() * choices.length);
+        choice = choices[choiceIndex];
+        console.warn('made random choice', choice);
+      }
 
       const seg = this.#g.findSegment(choice.via, choice.to);
 
@@ -185,7 +203,8 @@ export class SnakeMan {
       });
     }
 
-    // TODO
+    data.length += by;
+    return data.length;
   }
 
   /**
