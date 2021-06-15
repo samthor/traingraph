@@ -266,11 +266,12 @@ export class TrainGame extends EventTarget {
 
     this.dispatchEvent(new CustomEvent('update'));
 
+    const dir = -1;
     const amt = 0.005;
 
     const run = () => {
-      this.#trains.expand(train, 1, amt);
-      this.#trains.expand(train, -1, -amt);
+      this.#trains.expand(train, dir, amt);
+      this.#trains.expand(train, /** @type {1|-1} */ (-dir), -amt);
       window.requestAnimationFrame(run);
       this.dispatchEvent(new CustomEvent('update'));
     };

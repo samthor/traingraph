@@ -165,22 +165,20 @@ export class SnakeMan {
     const data = this.#dataForSnake(snake);
     by = Math.max(0, by);
 
-    if (end === -1) {
-      throw new Error(`TODO`)
-    }
-
-    // Expand snake (currently only at end=+1).
     let inc = by;
     while (inc > 0) {
-      const part = data.parts[data.parts.length - 1];
-      const findFrom = part.dir === 1 ? part.high : part.low;
+      const part = end === 1 ? data.parts[data.parts.length - 1] : data.parts[0];
+
+      const effectiveDir = /** @type {-1|1} */ (end * part.dir);
+      const findFrom = effectiveDir === 1 ? part.high : part.low;
 
       const details = this.#g.edgeDetails(part.edge);
 
-      const nodeInDir = this.#g.findNode(part.edge, findFrom, part.dir);
+      const nodeInDir = this.#g.findNode(part.edge, findFrom, effectiveDir);
       const deltaToNode = Math.abs(findFrom - nodeInDir.at) * details.length;
 
-      const effectiveDir = /** @type {-1|1} */ (end * part.dir);
+      // console.warn('found next node', findFrom, 'node', nodeInDir, 'delta', deltaToNode);
+
 
       // This change fits neatly before the next node in this direction.
       if (inc <= deltaToNode) {
@@ -204,8 +202,6 @@ export class SnakeMan {
         fromNode = nodeInDir.afterNode;
       }
       inc -= deltaToNode;
-
-      // console.debug('...moved TO node', nodeInDir, 'findFrom was', findFrom);
 
       // Catch not having a real node so we can keep extending awkwardly off the edge.
       const pairsAtNode = nodeInDir.node ? Array.from(this.#g.pairsAtNode(nodeInDir.node)) : [];
@@ -235,13 +231,18 @@ export class SnakeMan {
       }
 
       const seg = this.#g.findSegment(choice.via, choice.to);
-
-      data.parts.push({
+      const added = {
         edge: seg.edge,
-        dir: seg.dir,
+        dir: /** @type {1|-1} */ (seg.dir * end),
         low: seg.at,
         high: seg.at,
-      });
+      };
+
+      if (end === 1) {
+        data.parts.push(added);
+      } else {
+        data.parts.unshift(added);
+      }
     }
 
     data.length += by;
