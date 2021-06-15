@@ -25,6 +25,9 @@ export class TrainUiElement extends HTMLElement {
   #groupLines;
 
   /** @type {SVGElement} */
+  #trainLines;
+
+  /** @type {SVGElement} */
   #joinLines;
 
   /** @type {types.LineSearch} */
@@ -74,6 +77,7 @@ line.train {
   stroke-width: 6px;
   stroke-linecap: round;
   fill: transparent;
+  will-change: transform;
 }
 #lines circle {
   fill: #333;
@@ -92,6 +96,7 @@ line.train {
 <div class="outer" tabindex="-1">
   <svg>
     <g id="lines"></g>
+    <g id="trains"></g>
     <g id="joins"></g>
     <line id="line" />
     <circle r="4" id="start" />
@@ -105,6 +110,7 @@ line.train {
     this.#nearestCircle = /** @type {SVGCircleElement} */ (s.getElementById('nearest'));
     this.#pendingLine = /** @type {SVGLineElement} */ (s.getElementById('line'));
     this.#groupLines = /** @type {SVGElement} */ (s.getElementById('lines'));
+    this.#trainLines = /** @type {SVGElement} */ (s.getElementById('trains'));
     this.#joinLines = /** @type {SVGElement} */ (s.getElementById('joins'));
 
     const ro = new ResizeObserver(() => {
@@ -127,6 +133,7 @@ line.train {
     holderDiv.addEventListener('keydown', this.#onKeyDown);
 
     this.#game.addEventListener('update', this.#onUpdateGame);
+    this.#game.addEventListener('update-train', this.#onUpdateTrainGame);
   }
 
   #onUpdateGame = () => {
@@ -172,6 +179,10 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         this.#groupLines.append(e);
       });
     }
+  };
+
+  #onUpdateTrainGame = () => {
+    this.#trainLines.textContent = '';
 
     for (const train of this.#game.trains) {
       for (const part of train.parts) {
@@ -186,7 +197,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         e.setAttribute('x2', end.x / this.#ratio + 'px');
         e.setAttribute('y2', end.y / this.#ratio + 'px');
         e.setAttribute('class', 'train');
-        this.#groupLines.append(e);
+        this.#trainLines.append(e);
       }
     }
   };

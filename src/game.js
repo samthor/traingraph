@@ -261,25 +261,30 @@ export class TrainGame extends EventTarget {
     }
 
     const train = this.#trains.addSnake(at.line.id, at.offset, 1);
+    if (!train) {
+      return false;  // could not reserve this part
+    }
 
     if (this.#trains.expand(train, 1, 0.1) !== 0.1) {
       this.#trains.removeSnake(train);
       return false;
     }
 
-    this.dispatchEvent(new CustomEvent('update'));
+    this.dispatchEvent(new CustomEvent('update-train'));
 
-    let dir = -1;
+    let dir = /** @type {-1|1} */ (-1);
     const amt = 0.005;
 
     const run = () => {
       const moved = this.#trains.move(train, dir, amt);
       if (moved !== amt) {
-        dir *= -1;
+        // move back by amount we didn't move off end (yes this could happen forever but just do once)
+        dir = /** @type {-1|1} */ (-dir);
+        this.#trains.move(train, dir, amt - moved);
       }
 
       window.requestAnimationFrame(run);
-      this.dispatchEvent(new CustomEvent('update'));
+      this.dispatchEvent(new CustomEvent('update-train'));
     };
     run();
 
