@@ -72,7 +72,7 @@ circle.node {
   stroke-linecap: round;
   fill: transparent;
 }
-line.train {
+.train {
   stroke: purple;
   stroke-width: 6px;
   stroke-linecap: round;
@@ -184,21 +184,21 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
   #onUpdateTrainGame = () => {
     this.#trainLines.textContent = '';
 
-    for (const train of this.#game.trains) {
-      for (const part of train.parts) {
-        const line = this.#game.lookupLine(part.edge);
+    const raw = this.#game.trainsPoints();
+    for (const {train, points} of raw) {
+      const drawPoints = points.map(({edge, at}) => {
+        const line = this.#game.lookupLine(edge);
+        return helperMath.lerp(line.low, line.high, at);
+      });
 
-        const start = helperMath.lerp(line.low, line.high, part.low);
-        const end = helperMath.lerp(line.low, line.high, part.high);
+      const s = drawPoints.map((point, index) => {
+        return `${index ? 'L' : 'M'}${point.x / this.#ratio} ${point.y / this.#ratio}`;
+      }).join(' ');
 
-        const e = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        e.setAttribute('x1', start.x / this.#ratio + 'px');
-        e.setAttribute('y1', start.y / this.#ratio + 'px');
-        e.setAttribute('x2', end.x / this.#ratio + 'px');
-        e.setAttribute('y2', end.y / this.#ratio + 'px');
-        e.setAttribute('class', 'train');
-        this.#trainLines.append(e);
-      }
+      const e = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      e.setAttribute('d', s);
+      e.setAttribute('class', 'train');
+      this.#trainLines.append(e);
     }
   };
 

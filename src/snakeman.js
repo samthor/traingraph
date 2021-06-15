@@ -33,8 +33,20 @@ export var SnakePart;
 export var Snake;
 
 
+/**
+ * @typedef {{
+ *   from: string,
+ *   via: string,
+ *   to: string,
+ * }}
+ * @type {never}
+ */
+export var Choice;
+
+
 export class SnakeMan {
   #g;
+  #choose;
 
   /** @type {Map<string, SnakePart[]>} */
   #reservedEdge = new Map();
@@ -48,9 +60,11 @@ export class SnakeMan {
 
   /**
    * @param {types.GraphType} graph
+   * @param {(snake: string, choices: Choice[]) => number} choose
    */
-  constructor(graph) {
+  constructor(graph, choose) {
     this.#g = graph;
+    this.#choose = choose;
   }
 
   /**
@@ -112,6 +126,41 @@ export class SnakeMan {
     });
 
     this.#bySnake.delete(snake);
+  }
+
+  /**
+   * @param {string} snake
+   */
+  pointsForSnake(snake) {
+    const data = this.#dataForSnake(snake);
+    const {parts: p} = data;
+
+    /** @type {{edge: string, at: number}[]} */
+    const points = [];
+
+    // Find the longest part along a single edge.
+    let currentEdge = '';
+    for (let i = 0; i <= p.length; ++i) {
+      if (p[i] && p[i].edge === currentEdge) {
+        continue;
+      }
+
+      if (i === 0) {
+        // use low
+        const curr = p[0];
+        const at = curr.dir === 1 ? curr.low : curr.high;
+        points.push({edge: curr.edge, at});
+      } else {
+        // use high from i-1
+        const last = p[i - 1];
+        const at = last.dir === 1 ? last.high : last.low;
+        points.push({edge: last.edge, at});
+      }
+
+      currentEdge = p[i]?.edge ?? '';
+    }
+
+    return points;
   }
 
   /**
@@ -309,7 +358,7 @@ export class SnakeMan {
     const shrinkBy = intendedLength - data.length;
 
     if (intendedLength !== 0.1) {
-      console.warn('expand', expandBy, 'shrink?', shrinkBy, 'intended', intendedLength);
+      console.debug('expand', expandBy, 'shrink?', shrinkBy, 'intended', intendedLength);
     }
 
     this.expand(snake, /** @type {1|-1} */ (-end), shrinkBy);
@@ -495,15 +544,14 @@ export class SnakeMan {
       const choices = pairsAtNode.filter(([left, right]) => {
         return left === fromNode || right === fromNode;
       }).map(([left, right]) => {
+        /** @type {Choice} */
         return {from: fromNode, via: alreadyAtNode, to: left === fromNode ? right : left};
       });
 
       let choice = choices[0];
       if (choices.length > 1) {
-        // TODO: we make random choice rather than asking client
-        const choiceIndex = ~~(Math.random() * choices.length);
+        const choiceIndex = this.#choose(snake, choices);
         choice = choices[choiceIndex];
-        console.warn('made random choice', choice);
       }
 
       // If there's nowhere to go, then bail.

@@ -2,6 +2,7 @@
 import { Graph } from './graph.js';
 import * as helperMath from './helper/math.js';
 import { SnakeMan } from './snakeman.js';
+import * as snakeman from './snakeman.js';
 import * as types from './types.js';
 
 
@@ -13,8 +14,23 @@ const maxAngle = Math.PI / 3;
 
 
 export class TrainGame extends EventTarget {
+
+  /**
+   * @param {string} snake
+   * @param {snakeman.Choice[]} choices
+   */
+  #trainNav = (snake, choices) => {
+    const index = ~~(Math.random() * choices.length);
+    return index;
+  };
+
+  constructor() {
+    super();
+    window.requestAnimationFrame(this.#trainLoop);
+  }
+
   #g = new Graph();
-  #trains = new SnakeMan(this.#g);
+  #trains = new SnakeMan(this.#g, this.#trainNav);
 
   get graph() {
     return this.#g;
@@ -26,6 +42,12 @@ export class TrainGame extends EventTarget {
 
   get trains() {
     return this.#trains.allSnakes();
+  }
+
+  trainsPoints() {
+    return Array.from(this.#trainData.keys()).map((train) => {
+      return {train, points: this.#trains.pointsForSnake(train)};
+    });
   }
 
   /**
@@ -273,25 +295,39 @@ export class TrainGame extends EventTarget {
       return false;
     }
 
-    this.dispatchEvent(new CustomEvent('update-train'));
-
-    let dir = /** @type {-1|1} */ (-1);
-    const amt = 0.005;
-
-    const run = () => {
-      const moved = this.#trains.move(train, dir, amt);
-      if (moved !== amt) {
-        // move back by amount we didn't move off end (yes this could happen forever but just do once)
-        dir = /** @type {-1|1} */ (-dir);
-        this.#trains.move(train, dir, amt - moved);
-      }
-
-      window.requestAnimationFrame(run);
-      this.dispatchEvent(new CustomEvent('update-train'));
-    };
-    run();
-
+    this.#trainData.set(train, {dir: -1});
     return true;
   }
+
+  /** @type {Map<string, {dir: -1|1}>} */
+  #trainData = new Map();
+
+  #lastTrainLoop = 0;
+
+  #trainLoop = (now = 0) => {
+    window.requestAnimationFrame(this.#trainLoop);
+
+    const skip = (this.#lastTrainLoop === 0.0);
+    const since = now - this.#lastTrainLoop;
+    this.#lastTrainLoop = now;
+    if (skip) {
+      return;
+    }
+
+    const amt = (since / 1000) / 4;
+
+    this.#trainData.forEach((data, train) => {
+      const moved = this.#trains.move(train, data.dir, amt);
+      if (moved !== amt) {
+        // move back by amount we didn't move off end (yes this could happen forever but just do once)
+        data.dir = /** @type {-1|1} */ (-data.dir);
+        this.#trains.move(train, data.dir, amt - moved);
+      }
+    });
+
+    if (this.#trainData.size) {
+      this.dispatchEvent(new CustomEvent('update-train'));
+    }
+  };
 
 }
