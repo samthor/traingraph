@@ -9,7 +9,9 @@ import * as types from './types';
  *   edge: string,
  *   dir: -1|1,
  *   low: number,
+ *   lowNode: string,
  *   high: number,
+ *   highNode: string,
  * }}
  * @type {never}
  */
@@ -34,7 +36,7 @@ export class SnakeMan {
   #reservedEdge = new Map();
 
   // TODO: nodes currently being touched or intersected by snakes
-  /** @type {Map<string, Set<string>>} */
+  /** @type {Map<string, Set<SnakePart>>} */
   #reservedNode = new Map();
 
   /** @type {Map<string, Snake>} */
@@ -64,13 +66,18 @@ export class SnakeMan {
       throw new Error(`can't add snake off edge: ${at}`);
     }
 
+    // nb. for now, adding a snake doesn't implicitly touch any related nodes.
+    // It just _happens_ to be at the same position next to it.
+
     const id = nextGlobalId('S');
     const startPart = {
       snake: id,
       edge,
       dir,
-      high: at,
       low: at,
+      lowNode: '',
+      high: at,
+      highNode: '',
     };
 
     if (!this.#reserve(startPart)) {
@@ -98,6 +105,60 @@ export class SnakeMan {
 
     this.#bySnake.delete(snake);
   }
+
+  /**
+   * Doesn't add the reservation to `part`, but confirms it exists.
+   *
+   * @param {SnakePart} part
+   * @param {string} node
+   * @return {boolean} whether already reserved by another
+   */
+  #reserveNode = (part, node) => {
+    if (!node || !(part.highNode === node || part.lowNode === node)) {
+      throw new Error(`can't reserve empty node`);
+    }
+
+    const existing = this.#reservedNode.get(node);
+    if (existing === undefined) {
+      this.#reservedNode.set(node, new Set([part]));
+      return false;  // wasn't already reserved
+    }
+
+    if (existing.size === 1 && existing.has(part)) {
+      return false;
+    }
+
+    existing.add(part);
+    return true;  // already reserved
+  };
+
+  /**
+   * Unreserves this node for the given part. This clears the `highNode` or `lowNode` of the passed
+   * part.
+   *
+   * @param {SnakePart} part
+   * @param {string} node
+   */
+  #unreserveNode = (part, node) => {
+    if (node === '') {
+      return;
+    } else if (node === part.highNode) {
+      part.highNode = '';
+    } else if (node === part.lowNode) {
+      part.lowNode = '';
+    } else {
+      throw new Error(`can't unreserve node NOT ON part`);
+    }
+
+    const data = this.#reservedNode.get(node);
+    if (data === undefined || !data.has(part)) {
+      throw new Error(`can't unreserve nonexistent node: ${node}`);
+    }
+    data.delete(part);
+    if (data.size === 0) {
+      this.#reservedNode.delete(node);
+    }
+  };
 
   /**
    * @param {SnakePart} part
@@ -239,8 +300,17 @@ export class SnakeMan {
    * @return {number} the successful change amount (only <by if +ve)
    */
   move(snake, end, by) {
+    const data = this.#dataForSnake(snake);
+    const intendedLength = data.length;
+
     const expandBy = this.expand(snake, end, by);
-    this.expand(snake, /** @type {1|-1} */ (-end), -expandBy);
+    const shrinkBy = intendedLength - data.length;
+
+    if (intendedLength !== 0.1) {
+      console.warn('expand', expandBy, 'shrink?', shrinkBy, 'intended', intendedLength);
+    }
+
+    this.expand(snake, /** @type {1|-1} */ (-end), shrinkBy);
     return expandBy;
   }
 
@@ -270,15 +340,17 @@ export class SnakeMan {
       if (partUse >= dec) {
         if (effectiveDir === 1) {
           part.high -= dec / details.length;
+          this.#unreserveNode(part, part.highNode);
         } else {
           part.low += dec / details.length;
+          this.#unreserveNode(part, part.lowNode);
         }
         break;
       }
 
       // Don't allow the last element to be spliced out, the snake must always have length zero.
-      // TODO: does this ever fire? the `>=` above might catch it?
       if (data.parts.length === 1) {
+        throw 1;  // TODO: does this ever fire? the `>=` above might catch it?
         if (effectiveDir === 1) {
           // high was front, move back to low
           part.high = part.low;
@@ -289,9 +361,11 @@ export class SnakeMan {
         break;
       }
 
-      // Remove the contents of the whole node.
+      // Remove the contents of the whole part.
       dec -= partUse;
       this.#unreserve(part);
+      this.#unreserveNode(part, part.lowNode);
+      this.#unreserveNode(part, part.highNode);
       data.parts.splice(index, 1);
     }
 
@@ -319,7 +393,7 @@ export class SnakeMan {
       const unitInc = (inc / details.length);
 
       const nodeInDir = this.#g.findNode(part.edge, findFrom, effectiveDir);
-      let unitDeltaToNode = Math.abs(findFrom - nodeInDir.at);
+      const unitDeltaToNode = Math.abs(findFrom - nodeInDir.at);
       const deltaToNode = unitDeltaToNode * details.length;
 
       // console.warn('found next node', findFrom, 'node', nodeInDir, 'delta', deltaToNode);
@@ -334,6 +408,8 @@ export class SnakeMan {
         }
         inc -= (adjacent.dist * details.length);
 
+        // console.debug('...exp blocked by reserv', inc / details.length, 'now', {low: part.low, high: part.high});
+
         const actualInc = (by - inc);
         data.length += actualInc;
         return inc;
@@ -346,21 +422,33 @@ export class SnakeMan {
         } else {
           part.low -= unitInc;
         }
-        // console.debug('...exp fits', inc / details.length, 'now', {low: part.low, high: part.high});
+//        console.debug('...exp fits', inc / details.length, 'now', {low: part.low, high: part.high});
         break;
       }
 
       // Move completely towards this node.
       // TODO: "mark" this node as being occupied (it can be occupied by many?)
+      let wasAlreadyReserved;
       let fromNode = '';
       if (effectiveDir === 1) {
         part.high = nodeInDir.at;
+        part.highNode = nodeInDir.node;
+        wasAlreadyReserved = this.#reserveNode(part, part.highNode);
         fromNode = nodeInDir.priorNode;
       } else {
         part.low = nodeInDir.at;
+        part.lowNode = nodeInDir.node;
+        wasAlreadyReserved = this.#reserveNode(part, part.lowNode);
         fromNode = nodeInDir.afterNode;
       }
       inc -= deltaToNode;
+
+      if (wasAlreadyReserved) {
+        console.debug('...exp blocked by already reserved node', inc / details.length, 'now', {low: part.low, high: part.high});
+        const actualInc = (by - inc);
+        data.length += actualInc;
+        return inc;
+      }
 
       // Catch not having a real node so we know there's no choices.
       const pairsAtNode = nodeInDir.node ? Array.from(this.#g.pairsAtNode(nodeInDir.node)) : [];
@@ -391,8 +479,19 @@ export class SnakeMan {
         edge: seg.edge,
         dir: /** @type {1|-1} */ (seg.dir * end),
         low: seg.at,
+        lowNode: '',
         high: seg.at,
+        highNode: '',
       };
+
+      if (seg.dir === 1) {
+        added.lowNode = choice.via;
+        this.#reserveNode(added, added.lowNode);
+      } else {
+        added.highNode = choice.via;
+        this.#reserveNode(added, added.highNode);
+      }
+
       this.#reserve(added);
 
       if (end === 1) {

@@ -262,10 +262,12 @@ export class TrainGame extends EventTarget {
 
     const train = this.#trains.addSnake(at.line.id, at.offset, 1);
     if (!train) {
+      console.warn('couldn\'t reserve solo:', at.offset);
       return false;  // could not reserve this part
     }
 
     if (this.#trains.expand(train, 1, 0.1) !== 0.1) {
+      console.warn('couldn\'t expand:', at.offset);
       this.#trains.removeSnake(train);
       return false;
     }
