@@ -27,26 +27,15 @@ export var SnakePart;
 export var Snake;
 
 
-/**
- * @param {SnakePart} a
- * @param {SnakePart} b
- */
-function compareSnakePart(a, b) {
-  if (a.edge !== b.edge) {
-    if (a.edge < b.edge) {
-      return -1;
-    }
-    return +1;
-  }
-  return a.low - b.low;
-}
-
-
 export class SnakeMan {
   #g;
 
   /** @type {Map<string, SnakePart[]>} */
   #reservedEdge = new Map();
+
+  // TODO: nodes currently being touched or intersected by snakes
+  /** @type {Map<string, Set<string>>} */
+  #reservedNode = new Map();
 
   /** @type {Map<string, Snake>} */
   #bySnake = new Map();
@@ -129,6 +118,65 @@ export class SnakeMan {
   };
 
   /**
+   * @param {string} edge
+   * @param {number} low
+   * @param {number} high
+   */
+  #query = (edge, low, high) => {
+    const reserved = this.#reservedEdge.get(edge);
+    if (reserved === undefined) {
+      return 0;
+    }
+
+    let i;
+    for (i = 0; i < reserved.length; ++i) {
+      const check = reserved[i];
+      if (low > check.low && low < check.high) {
+        return -1;
+      }
+      if (low <= check.low) {
+        break;
+      }
+    }
+
+    for (let j = i; j < reserved.length; ++j) {
+      const check = reserved[j];
+      if (high > check.low && high < check.high) {
+        return -1;
+      }
+    }
+
+    return i;
+  };
+
+  /**
+   * @param {SnakePart} part
+   * @param {-1|1} dir
+   * @return {{other: SnakePart?, dist: number}}
+   */
+  #adjacentReservation = (part, dir) => {
+    const all = this.#reservedEdge.get(part.edge);
+    const index = all?.indexOf(part) ?? -1;
+    if (all === undefined || index === -1) {
+      throw new Error(`missing reserved part`);
+    }
+
+    if (dir === -1) {
+      if (index === 0) {
+        return {other: null, dist: part.low};
+      }
+      const other = all[index - 1];
+      return {other, dist: part.low - other.high};
+    }
+
+    const other = all[index + 1];
+    if (other === undefined) {
+      return {other: null, dist: 1.0 - part.high};
+    }
+    return {other, dist: other.low - part.high};
+  };
+
+  /**
    * @param {SnakePart} part
    */
   #reserve = (part) => {
@@ -138,9 +186,11 @@ export class SnakeMan {
       return true;
     }
 
-    // TODO: should binary insert
-    existing.push(part);
-    existing.sort(compareSnakePart);
+    const index = this.#query(part.edge, part.low, part.high);
+    if (index === -1) {
+      return false;
+    }
+    existing.splice(index, 0, part);
     return true;
   };
 
@@ -156,6 +206,7 @@ export class SnakeMan {
     // console.info('(expand)', `end=${end} by=${by}`);
 
     // TODO: sanity check parts vs intended length
+    // TODO: the snake IS drifting in width over time ... floating point!
     let totalUse = 0;
     for (const part of data.parts) {
       const details = this.#g.edgeDetails(part.edge);
@@ -265,22 +316,35 @@ export class SnakeMan {
       const findFrom = effectiveDir === 1 ? part.high : part.low;
 
       const details = this.#g.edgeDetails(part.edge);
+      const unitInc = (inc / details.length);
 
       const nodeInDir = this.#g.findNode(part.edge, findFrom, effectiveDir);
-      const deltaToNode = Math.abs(findFrom - nodeInDir.at) * details.length;
+      let unitDeltaToNode = Math.abs(findFrom - nodeInDir.at);
+      const deltaToNode = unitDeltaToNode * details.length;
 
       // console.warn('found next node', findFrom, 'node', nodeInDir, 'delta', deltaToNode);
 
-      // TODO: Check if there's already a reservation in the direction we're trying to go.
+      // Check if there's already a reservation in the direction we're trying to go.
+      const adjacent = this.#adjacentReservation(part, effectiveDir);
+      if (adjacent.dist < Math.min(unitDeltaToNode, unitInc)) {
+        if (effectiveDir === 1) {
+          part.high += adjacent.dist;
+        } else {
+          part.low -= adjacent.dist;
+        }
+        inc -= (adjacent.dist * details.length);
 
-
+        const actualInc = (by - inc);
+        data.length += actualInc;
+        return inc;
+      }
 
       // This change fits neatly before the next node in this direction.
       if (inc <= deltaToNode) {
         if (effectiveDir === 1) {
-          part.high += inc / details.length;
+          part.high += unitInc;
         } else {
-          part.low -= inc / details.length;
+          part.low -= unitInc;
         }
         // console.debug('...exp fits', inc / details.length, 'now', {low: part.low, high: part.high});
         break;
@@ -316,8 +380,9 @@ export class SnakeMan {
 
       // If there's nowhere to go, then bail and report less increment.
       if (choice === undefined) {
-        data.length += (by - inc);
-        return inc;
+        const actualInc = (by - inc);
+        data.length += actualInc;
+        return actualInc;
       }
 
       const seg = this.#g.findSegment(choice.via, choice.to);
