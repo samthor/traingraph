@@ -52,6 +52,10 @@ export class SnakeMan {
    * @param {-1|1} dir
    */
   addSnake(edge, at, dir) {
+    if (at < 0.0 || at > 1.0) {
+      throw new Error(`can't add snake off edge: ${at}`);
+    }
+
     const id = nextGlobalId('S');
 
     const s = {
@@ -71,8 +75,16 @@ export class SnakeMan {
 
   /**
    * @param {string} snake
+   */
+  removeSnake(snake) {
+    this.#bySnake.delete(snake);
+  }
+
+  /**
+   * @param {string} snake
    * @param {-1|1} end
    * @param {number} by
+   * @return {number} the successful change amount (only <by if +ve)
    */
   expand(snake, end, by) {
     const data = this.#dataForSnake(snake);
@@ -95,12 +107,26 @@ export class SnakeMan {
       }
     }
 
-    if (by > 0) {
-      this.#increaseSnake(snake, end, by);
+    if (by === 0.0) {
+      return 0;
+    } else if (by > 0) {
+      return this.#increaseSnake(snake, end, by);
     } else {
       this.#reduceSnake(snake, end, -by);
+      return -by;
     }
-    return data.length;
+  }
+
+  /**
+   * @param {string} snake
+   * @param {-1|1} end
+   * @param {number} by
+   * @return {number} the successful change amount (only <by if +ve)
+   */
+  move(snake, end, by) {
+    const expandBy = this.expand(snake, end, by);
+    this.expand(snake, /** @type {1|-1} */ (-end), -expandBy);
+    return expandBy;
   }
 
   /**
@@ -160,6 +186,7 @@ export class SnakeMan {
    * @param {string} snake
    * @param {-1|1} end
    * @param {number} by
+   * @return {number} amount moved by
    */
   #increaseSnake = (snake, end, by) => {
     const data = this.#dataForSnake(snake);
@@ -206,16 +233,6 @@ export class SnakeMan {
       // Catch not having a real node so we can keep extending awkwardly off the edge.
       const pairsAtNode = nodeInDir.node ? Array.from(this.#g.pairsAtNode(nodeInDir.node)) : [];
 
-      // If there's nowhere to go, extend awkwardly off the end of this edge.
-      if (!pairsAtNode.length) {
-        if (effectiveDir === 1) {
-          part.high += inc / details.length;
-        } else {
-          part.low -= inc / details.length;
-        }
-        break;
-      }
-
       const choices = pairsAtNode.filter(([left, right]) => {
         return left === fromNode || right === fromNode;
       }).map(([left, right]) => {
@@ -228,6 +245,12 @@ export class SnakeMan {
         const choiceIndex = ~~(Math.random() * choices.length);
         choice = choices[choiceIndex];
         console.warn('made random choice', choice);
+      }
+
+      // If there's nowhere to go, then bail and report less increment.
+      if (choice === undefined) {
+        data.length += (by - inc);
+        return inc;
       }
 
       const seg = this.#g.findSegment(choice.via, choice.to);
@@ -246,6 +269,7 @@ export class SnakeMan {
     }
 
     data.length += by;
+    return by;
   };
 
   /**
