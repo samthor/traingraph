@@ -269,10 +269,9 @@ export class TrainGame extends EventTarget {
     const amt = 0.005;
 
     const run = () => {
-      window.requestAnimationFrame(run);
-
       this.#trains.expand(train, 1, amt);
       this.#trains.expand(train, -1, -amt);
+      window.requestAnimationFrame(run);
       this.dispatchEvent(new CustomEvent('update'));
     };
     run();
