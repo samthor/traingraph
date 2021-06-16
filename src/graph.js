@@ -128,7 +128,7 @@ export class Graph {
         const s = Math.sign(virt.at - at);
         return s === dir || s === 0;
       });
-      // TODO: don't need to sort in tihs case
+      // TODO: don't need to sort in this case
 
       if (!all.length) {
         const priorNode = dir === 1 ? data.node[data.node.length - 1].id : '';
@@ -423,14 +423,8 @@ export class Graph {
     const v = this.#virtBetween(lowNode, highNode);
     const edgeData = this.#dataForEdge(v.virt.edge);
 
-    // let segmentLength;
-    // if (v.dir === +1) {
     const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? 1.0;
     const segmentLength = nextVirtAt - v.virt.at;
-    // } else {
-    //   const prevVirtAt = edgeData.virt[v.index].at;
-    //   segmentLength = v.virt.at - prevVirtAt;
-    // }
 
     let at = v.virt.at;
     if (v.dir === -1) {

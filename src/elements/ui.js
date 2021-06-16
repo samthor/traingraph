@@ -30,6 +30,9 @@ export class TrainUiElement extends HTMLElement {
   /** @type {SVGElement} */
   #joinLines;
 
+  /** @type {HTMLElement} */
+  #stateElement;
+
   /** @type {types.LineSearch} */
   #startPoint = zeroLineSearch;
 
@@ -76,8 +79,14 @@ circle.node {
   stroke: purple;
   stroke-width: 6px;
   stroke-linecap: round;
+  stroke-linejoin: round;
   fill: transparent;
   will-change: transform;
+}
+.trainHead {
+  stroke-width: 2px;
+  stroke: red;
+  fill: white;
 }
 #lines circle {
   fill: #333;
@@ -89,8 +98,27 @@ circle.node {
   stroke: blue;
   stroke-width: 4px;
 }
+.outer {
+  display: flex;
+  flex-flow: column;
+  height: 100%;
+}
 .outer:focus {
   outline: 0;
+}
+svg {
+  flex-grow: 1;
+}
+#state {
+  min-height: 32px;
+  background: #eee;
+  line-height: 24px;
+  padding: 4px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.outer:focus #state {
+  box-shadow: 0 0 0 2px inset #3335;
 }
 </style>
 <div class="outer" tabindex="-1">
@@ -102,6 +130,7 @@ circle.node {
     <circle r="4" id="start" />
     <circle r="4" id="nearest" />
   </svg>
+  <div id="state"></div>
 </div>
     `;
 
@@ -113,9 +142,11 @@ circle.node {
     this.#trainLines = /** @type {SVGElement} */ (s.getElementById('trains'));
     this.#joinLines = /** @type {SVGElement} */ (s.getElementById('joins'));
 
+    this.#stateElement = /** @type {HTMLElement} */ (root.getElementById('state'));
+
     const ro = new ResizeObserver(() => {
-      s.setAttribute('width', this.offsetWidth + 'px');
-      s.setAttribute('height', this.offsetHeight + 'px');
+      // s.setAttribute('width', this.offsetWidth + 'px');
+      // s.setAttribute('height', this.offsetHeight + 'px');
 
       if (this.offsetHeight > this.offsetWidth) {
         this.#ratio = 1 / this.offsetWidth;
@@ -199,6 +230,14 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
       e.setAttribute('d', s);
       e.setAttribute('class', 'train');
       this.#trainLines.append(e);
+
+      const headPoint = drawPoints[0];
+      const circ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circ.setAttribute('cx', `${headPoint.x / this.#ratio}`);
+      circ.setAttribute('cy', `${headPoint.y / this.#ratio}`);
+      circ.setAttribute('r', '5');
+      circ.setAttribute('class', 'trainHead');
+      this.#trainLines.append(circ);
     }
   };
 
@@ -242,12 +281,13 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     this.#nearestPoint = p;
     this.#joinLines.textContent = '';
 
-    if (this.#state !== 'pending') {
+    if (this.#state !== 'add') {
       this.#configureCircle(this.#startCircle, p);
       this.#configureCircle(this.#nearestCircle, null);
       return;
     }
 
+    this.#pendingLine.removeAttribute('hidden');
     this.#pendingLine.setAttribute('x2', p.x / this.#ratio + 'px');
     this.#pendingLine.setAttribute('y2', p.y / this.#ratio + 'px');
 
@@ -281,27 +321,18 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
    */
   #onPointerDown = (event) => {
     if (event.button) {
-      this.#state = 'abort';
+      this.#setState('abort');
     }
 
     // switch to line-drawing
     switch (this.#state) {
-      case '':
-        this.#state = 'pending';
-
-        const p = this.#nearestPoint;
-        this.#pendingLine.setAttribute('x1', p.x / this.#ratio + 'px');
-        this.#pendingLine.setAttribute('y1', p.y / this.#ratio + 'px');
-        this.#startPoint = p;
-        break;
-
-      case 'pending':
+      case 'add':
         const other = this.#adjustEvent(event);
         this.#game.add(this.#startPoint, other);
         // fall-through
 
       case 'abort':
-        this.#state = '';
+        this.#setState('');
         this.#pendingLine.removeAttribute('x1');
         this.#pendingLine.removeAttribute('y1');
         this.#pendingLine.removeAttribute('x2');
@@ -316,14 +347,42 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
    */
   #onKeyDown = (event) => {
     switch (event.key) {
+      case 'a':
+        if (this.#state) {
+          return;
+        }
+        this.#setState('add');
+
+        const p = this.#nearestPoint;
+        this.#pendingLine.setAttribute('hidden', '');
+        this.#pendingLine.setAttribute('x1', p.x / this.#ratio + 'px');
+        this.#pendingLine.setAttribute('y1', p.y / this.#ratio + 'px');
+        this.#startPoint = p;
+        break;
+
       case 's':
-        if (this.#state !== '' || !this.#nearestPoint.line) {
+        if (this.#state || !this.#nearestPoint.line) {
           return;
         }
 
         this.#game.addTrain(this.#nearestPoint);
         break;
+
+      case 'p':
+        if (this.#state || !this.#nearestPoint.line) {
+          return;
+        }
+        this.#setState('path');
+        break;
     }
+  };
+
+  /**
+   * @param {string} state
+   */
+  #setState = (state) => {
+    this.#state = state;
+    this.#stateElement.textContent = state;
   };
 
 }

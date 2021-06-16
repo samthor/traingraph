@@ -18,8 +18,8 @@ export interface GraphType {
   edgeDetails(edge: string): EdgeDetails;
 
   /**
-   * Finds the nearest edge node to the given position. Edges always have at least a start and end
-   * node, so this always returns a value.
+   * Finds the nearest edge node to the given position, possibly in the given direction. This will
+   * return the node under `at` if it matches.
    */
   findNode(edge: string, at: number, dir?: -1|0|1): AtNode;
 
