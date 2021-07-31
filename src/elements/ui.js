@@ -369,6 +369,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         break;
 
       case 'p':
+        // TODO: not yet complete
         if (this.#state || !this.#nearestPoint.line) {
           return;
         }
