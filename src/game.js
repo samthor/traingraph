@@ -10,12 +10,12 @@ import * as types from './types.js';
 export const zeroLineSearch = {line: null, nodeId: '', offset: NaN, x: 0, y: 0, dist: Infinity};
 
 
+/**
+ * Maximum angle a line can be joined at.
+ */
 const maxAngle = Math.PI / 3;
 
 
-/**
- * Operates in floating point 0-1.
- */
 export class TrainGame extends EventTarget {
 
   #roundingFactor;

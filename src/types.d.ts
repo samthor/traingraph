@@ -54,7 +54,7 @@ export interface GraphType {
 
   /**
    * Joins two nodes via another node. This expects that the three nodes are in sequence and will
-   * crash otherwise.
+   * crash otherwise. This creates a pair on the middle node.
    */
   join(a: string, via: string, b: string): void;
 

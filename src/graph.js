@@ -1,7 +1,6 @@
 
 import * as types from './types.js';
 import { nextGlobalId } from './helper/id.js';
-import { randomChoice } from './helper/math.js';
 
 
 /**
