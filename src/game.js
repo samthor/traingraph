@@ -228,7 +228,9 @@ export class TrainGame extends EventTarget {
       const found = this.#g.findNode(line.id, alongLineInteger, 0);
       const floatFound = found.at / line.length;
 
-      if (Math.abs(alongLine - floatFound) < buffer) {
+      // If this is literally the same node position, or it's within the UI float buffer, set its
+      // nodeId for rendering.
+      if (alongLineInteger === found.at || Math.abs(alongLine - floatFound) < buffer) {
         bestLineOffset = found.at;  // clamp to node, not just a point along line
         bestNodeId = found.node;
       }
@@ -241,7 +243,9 @@ export class TrainGame extends EventTarget {
       const floatOffset = bestLineOffset / l.length;
       const {x, y} = helperMath.lerp(l.low, l.high, floatOffset);
 
-      return {line: l, nodeId: bestNodeId, offset: floatOffset, x, y, dist: bestDistance};
+      const out = {line: l, nodeId: bestNodeId, offset: floatOffset, x, y, dist: bestDistance};
+      // console.debug('best', out);
+      return out;
     }
     return {line: null, nodeId: '', offset: NaN, x: point.x, y: point.y, dist: 0};
   }
