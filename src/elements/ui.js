@@ -281,6 +281,30 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     this.#nearestPoint = p;
     this.#joinLines.textContent = '';
 
+    if (this.#state === 'path') {
+      this.#configureCircle(this.#startCircle, this.#startPoint);
+      this.#configureCircle(this.#nearestCircle, p);
+
+      const fromLine = this.#startPoint.line;
+      const toLine = p.line;
+      if (!fromLine || !toLine) {
+        return;
+      }
+      const from = {
+        edge: fromLine.id,
+        at: Math.round(this.#startPoint.offset * fromLine.length),
+        dir: /** @type {1} */ (+1),  // FIXME: just guesses a value
+      };
+      const to = {
+        edge: toLine.id,
+        at: Math.round(p.offset * toLine.length),
+      };
+
+      this.#game.graph.search(from, to);
+
+      return;
+    }
+
     if (this.#state !== 'add') {
       this.#configureCircle(this.#startCircle, p);
       this.#configureCircle(this.#nearestCircle, null);
@@ -321,7 +345,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
    */
   #onPointerDown = (event) => {
     if (event.button) {
-      this.#setState('abort');
+      return this.#abortState();
     }
 
     // switch to line-drawing
@@ -329,14 +353,8 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
       case 'add':
         const other = this.#adjustEvent(event);
         this.#game.add(this.#startPoint, other);
-        // fall-through
-
-      case 'abort':
-        this.#setState('');
-        this.#pendingLine.removeAttribute('x1');
-        this.#pendingLine.removeAttribute('y1');
-        this.#pendingLine.removeAttribute('x2');
-        this.#pendingLine.removeAttribute('y2');
+        this.#abortState();
+        break;
     }
 
     this.#onPointerMove(event);
@@ -347,6 +365,10 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
    */
   #onKeyDown = (event) => {
     switch (event.key) {
+      case 'Escape':
+        this.#abortState();
+        break;
+
       case 'a':
         if (this.#state) {
           return;
@@ -374,6 +396,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
           return;
         }
         this.#setState('path');
+        this.#startPoint = this.#nearestPoint;
         break;
     }
   };
@@ -384,6 +407,15 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
   #setState = (state) => {
     this.#state = state;
     this.#stateElement.textContent = state;
+  };
+
+  #abortState = () => {
+    this.#setState('');
+    // TODO: state could should draw this itself
+    this.#pendingLine.removeAttribute('x1');
+    this.#pendingLine.removeAttribute('y1');
+    this.#pendingLine.removeAttribute('x2');
+    this.#pendingLine.removeAttribute('y2');
   };
 
 }

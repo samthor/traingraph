@@ -1,6 +1,7 @@
 
 import * as types from './types.js';
 import { nextGlobalId } from './helper/id.js';
+import { randomChoice } from './helper/math.js';
 
 
 /**
@@ -612,6 +613,99 @@ export class Graph {
     }
     return d;
   };
+
+  /**
+   * @param {{ node?: string, prevNode?: string, edge?: string, at?: number, dir?: -1|1 }} from
+   * @param {{ edge: string, at: number }} to
+   * @return {void}
+   */
+  search(from, to) {
+    const { edge: toEdge, at: toAt } = to;
+
+    /** @type {{ node: string, prevNode: string }[]} */
+    const heads = [];
+
+    // TODO: in general we need to support:
+    //   a) at/dir (always along edge itself)
+    //   b) node/priorNode (previous path)
+    //   c) ???
+
+    if (from.at !== undefined) {
+      if (from.dir === undefined || from.edge === undefined) {
+        throw new Error(`search with 'at' requires dir + edge`);
+      }
+
+      // See if this is actually an inner node we can go backwards from. If so, this is actually a
+      // search with a segment.
+      const exact = this.exactNode(from.edge, from.at);
+      if (exact.node) {
+        let prevNode;
+
+        if (from.dir === +1 && exact.priorNode) {
+          prevNode = exact.priorNode;
+        } else if (from.dir === -1 && exact.afterNode) {
+          prevNode = exact.afterNode;
+        }
+
+        if (prevNode) {
+          return this.search({ node: exact.node, prevNode }, to);
+        }
+      }
+
+      // Do an initial match of this "segment". We don't record it for revisiting reasons because we never
+      // really walked over the whole thing.
+      const node = this.findNode(from.edge, from.at, from.dir);
+      const prevNode = from.dir === +1 ? node.priorNode : node.afterNode;
+      if (!node.node && !prevNode) {
+        throw new Error(`unexpected missing next node (should have caught on edge already)`);
+      }
+      heads.push({ node: node.node, prevNode });
+    } else {
+      if (!from.node || !from.prevNode) {
+        throw new Error(`expected segment pair to be passed`);
+      }
+      heads.push({ node: from.node, prevNode: from.prevNode });
+      // TODO: record this one as already being visited?
+    }
+
+    for (;;) {
+      const next = heads.shift();
+      if (next === undefined) {
+        console.warn('no match found', to);
+        return;
+      }
+
+      const pairs = this.pairsAtNode(next.node);
+      const choices = pairs.map(([left, right]) => {
+        return left === next.prevNode ? right : left;
+      });
+      const s = new Set(choices);
+      if (s.size !== choices.length) {
+        throw new Error('dup choices');
+      }
+
+      const segmentChoices = choices.map((choice) => {
+        const segment = this.findSegment(next.node, choice);
+        return {
+          id: `${next.node}:${choice}`,
+          segment,
+        }
+      });
+
+      console.info('got choices', segmentChoices.map(({id}) => id), 'from choices', choices);
+
+      // // find next node in this dir
+      // const adjacent = this.findNode(next.edge, next.at, next.dir);
+      // if (!adjacent.node) {
+      //   // TODO: we were at end of edge
+      //   continue;
+      // }
+
+
+    }
+
+
+  }
 }
 
 // A 

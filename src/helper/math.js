@@ -66,3 +66,17 @@ export function angle(a, b) {
 export function smallestAngle(a, b) {
   return Math.min((Math.PI * 2) - Math.abs(a - b), Math.abs(a - b));
 }
+
+
+/**
+ * @template T
+ * @param {T[]} arr
+ * @return {T|undefined}
+ */
+export function randomChoice(arr) {
+  if (arr.length <= 1) {
+    return arr[0];
+  }
+  const index = Math.floor(Math.random() * arr.length);
+  return arr[index];
+}

@@ -76,6 +76,11 @@ export interface GraphType {
    * Finds the unambiguous segment between these two nodes.
    */
   findSegment(lowNode: string, highNode: string): {edge: string, at: number, dir: -1|1, segmentLength: number};
+
+  /**
+   * Perform a search from the source to the destination.
+   */
+  search(from: { node?: string, prevNode?: string, edge?: string, at?: number, dir?: -1|1 }, to: {edge: string, at: number}): void;
 }
 
 
