@@ -2,7 +2,7 @@ Work in progress train graph + game demo on top.
 
 # Play
 
-Run with `dhost` or something that will rewrite your ESM imports:
+Fetch, run `npm install`, and run with `dhost` or something that will rewrite your ESM imports:
 
 ```js
 dhost -m
