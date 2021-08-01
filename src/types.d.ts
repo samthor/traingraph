@@ -80,7 +80,7 @@ export interface GraphType {
   /**
    * Perform a search from the source to the destination.
    */
-  search(from: AtNodeDirRequest, to: AtNodeRequest): void;
+  search(from: AtNodeDirRequest, to: AtNodeRequest): null|AtNode[];
 }
 
 

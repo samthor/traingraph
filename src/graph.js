@@ -639,14 +639,14 @@ export class Graph {
     /** @type {(() => void)[]} */
     const cleanup = [];
 
-    /** @type {(req: types.AtNodeRequest | types.AtNodeDirRequest) => { node: string, prevNode: string }} */
+    /** @type {(req: types.AtNodeRequest | types.AtNodeDirRequest) => { node: string, prevNode: string, fake: boolean }} */
     const ensureNode = (req) => {
       const prevNode = 'prevNode' in req && req.prevNode || '';
       if (req.node) {
         if (req.edge || req.at) {
           throw new Error(`node doesn't need edge/at`);
         }
-        return { node: req.node, prevNode };
+        return { node: req.node, prevNode, fake: false };
       }
       if (!req.edge || req.at === undefined) {
         throw new Error(`without real node, edge/at must be specified`);
@@ -656,7 +656,7 @@ export class Graph {
       // See if there's a node here.
       const exactNode = this.exactNode(edge, at);
       if (exactNode.node) {
-        return { node: exactNode.node, prevNode };
+        return { node: exactNode.node, prevNode, fake: false };
       }
 
       // Create a node at the given position that gets removed later.
@@ -665,14 +665,36 @@ export class Graph {
         this.#internalDeleteNode(created.node);
       });
 
-      return { node: created.node, prevNode };
+      return { node: created.node, prevNode, fake: true };
     };
 
     const nodeFrom = ensureNode(from);
     const nodeTo = ensureNode(to);
 
+
     try {
-      this.#internalSearch(nodeFrom, nodeTo.node);
+      const path = this.#internalSearch(nodeFrom, nodeTo.node);
+      if (!path) {
+        return null;
+      }
+
+      /** @type {Set<string>} */
+      const fakeSet = new Set();
+
+      nodeFrom.fake && fakeSet.add(nodeFrom.node);
+      nodeTo.fake && fakeSet.add(nodeTo.node);
+
+      const out = path.map((node) => {
+        const at = this.nodePos(node);
+
+        if (fakeSet.has(node)) {
+          at.node = '';
+        }
+
+        return at;
+      });
+      return out;
+
     } finally {
       cleanup.forEach((fn) => fn());
     }
@@ -687,17 +709,29 @@ export class Graph {
     /** @type {Set<string>} */
     const visited = new Set();
 
-    /** @type {{ node: string, prevNode: string }[]} */
+    /**
+     * @typedef {{ node: string, prevNode: string, prev?: SearchHead }}
+     * @type {never}
+     */
+    var SearchHead;
+
+    /** @type {SearchHead[]} */
     const heads = [];
 
     if (from.prevNode) {
+      // This might be a directed search that is already at its target.
+      if (from.node === to) {
+        return [to, from.prevNode];
+      }
       heads.push(from);
+    } else if (from.node === to) {
+      // We're a directionless search that found its target already.
+      return [to];
     } else {
-      // TODO: if from.node === to, we can bail early
-
+      // This is an undirected search. We find all possible pairs from the node we're at (could
+      // be fake or real).
       const pairs = this.pairsAtNode(from.node);
       for (const p of pairs) {
-        // TODO: mmm this moves "away" from the source location
         heads.push(
           { node: p[0], prevNode: from.node },
           { node: p[1], prevNode: from.node },
@@ -705,24 +739,48 @@ export class Graph {
       }
     }
 
-    console.warn('first start', heads.length, {from: from.node, to});
-
     for (;;) {
       const next = heads.shift();
       if (next === undefined) {
-        console.warn('no match found', to);
-        return;
+        return null;
       }
 
+      // We've found the target! Walk backwards through the nodes to flatten the path.
       if (next.node === to) {
-        console.warn('🥳 found target');
-        return;
+
+        /** @type {string[]} */
+        const path = [];
+
+        let curr = next;
+        while (curr) {
+          path.push(curr.node);
+
+          // At the end, add the awkward starting point.
+          if (curr.prev === undefined) {
+            if (curr.prevNode) {
+              path.push(curr.prevNode);
+            }
+            break;
+          }
+
+          curr = curr.prev;
+        }
+
+        return path;
       }
 
       const pairs = this.pairsAtNode(next.node);
-      const choices = pairs.map(([left, right]) => {
-        return left === next.prevNode ? right : left;
-      });
+
+      const choices = /** @type {string[]} */ (pairs.map(([left, right]) => {
+        // We might not be coming in on a matching pair, so we can't include all (e.g., crossed
+        // lines). Need to filter out valid oness, might be empty.
+        if (left === next.prevNode) {
+          return right;
+        } else if (right === next.prevNode) {
+          return left;
+        }
+        return null;
+      }).filter(Boolean));
 
       const segmentChoices = choices.map((choice) => {
         const segment = this.findSegment(next.node, choice);
@@ -741,19 +799,9 @@ export class Graph {
         heads.push({
           node: choice.node,
           prevNode: choice.prevNode,
+          prev: next,
         });
       }
-
-      console.info('for seg', next.prevNode, next.node, 'got choices', segmentChoices.map(({id}) => id));
-
-      // // find next node in this dir
-      // const adjacent = this.findNode(next.edge, next.at, next.dir);
-      // if (!adjacent.node) {
-      //   // TODO: we were at end of edge
-      //   continue;
-      // }
-
-
     }
 
   };

@@ -30,6 +30,9 @@ export class TrainUiElement extends HTMLElement {
   /** @type {SVGElement} */
   #joinLines;
 
+  /** @type {SVGElement} */
+  #searchLine;
+
   /** @type {HTMLElement} */
   #stateElement;
 
@@ -117,6 +120,13 @@ svg {
   box-sizing: border-box;
   pointer-events: none;
 }
+#search {
+  fill: none;
+  stroke: red;
+  stroke-width: 8px;
+  opacity: 0.4;
+  stroke-linecap: round;
+}
 .outer:focus #state {
   box-shadow: 0 0 0 2px inset #3335;
 }
@@ -129,6 +139,7 @@ svg {
     <line id="line" />
     <circle r="4" id="start" />
     <circle r="4" id="nearest" />
+    <path id="search" />
   </svg>
   <div id="state"></div>
 </div>
@@ -141,6 +152,8 @@ svg {
     this.#groupLines = /** @type {SVGElement} */ (s.getElementById('lines'));
     this.#trainLines = /** @type {SVGElement} */ (s.getElementById('trains'));
     this.#joinLines = /** @type {SVGElement} */ (s.getElementById('joins'));
+
+    this.#searchLine = /** @type {SVGElement} */ (s.getElementById('search'));
 
     this.#stateElement = /** @type {HTMLElement} */ (root.getElementById('state'));
 
@@ -299,7 +312,21 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         at: Math.round(p.offset * toLine.length),
       };
 
-      this.#game.graph.search(from, to);
+      const path = this.#game.graph.search(from, to);
+      if (!path) {
+        this.#searchLine.removeAttribute('d');
+        return;
+      }
+
+      const parts = path.map((at, index) => {
+        const pos = this.#game.linePosLerp(at.edge, at.at);
+        const key = index ? 'L' : 'M';
+
+        return `${key} ${pos.x / this.#ratio},${pos.y / this.#ratio}`;
+      });
+
+      const e = this.#searchLine;
+      e.setAttribute('d', parts.join(' '));
 
       return;
     }
@@ -415,6 +442,8 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     this.#pendingLine.removeAttribute('y1');
     this.#pendingLine.removeAttribute('x2');
     this.#pendingLine.removeAttribute('y2');
+
+    this.#searchLine.removeAttribute('d');
   };
 
 }
