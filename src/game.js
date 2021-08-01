@@ -13,7 +13,12 @@ export const zeroLineSearch = {line: null, nodeId: '', offset: NaN, x: 0, y: 0, 
 const maxAngle = Math.PI / 3;
 
 
+/**
+ * Operates in floating point 0-1.
+ */
 export class TrainGame extends EventTarget {
+
+  #roundingFactor;
 
   /**
    * @param {string} snake
@@ -24,8 +29,12 @@ export class TrainGame extends EventTarget {
     return index;
   };
 
-  constructor() {
+  /**
+   * @param {number} roundingFactor
+   */
+  constructor(roundingFactor) {
     super();
+    this.#roundingFactor = roundingFactor;
     window.requestAnimationFrame(this.#trainLoop);
   }
 
@@ -91,12 +100,15 @@ export class TrainGame extends EventTarget {
    */
   add(low, high) {
     const length = Math.hypot(low.x - high.x, low.y - high.y);
-    const {edge, lowNode, highNode} = this.#g.add(length);
+
+    // Round to an actual integer value before adding to graph.
+    const roundedLength = Math.floor(length * this.#roundingFactor);
+    const {edge, lowNode, highNode} = this.#g.add(roundedLength);
 
     const line = {
       low: {x: low.x, y: low.y},
       high: {x: high.x, y: high.y},
-      length,
+      length: roundedLength,
       id: edge,
     };
     this.#lines.set(edge, line);
@@ -156,15 +168,16 @@ export class TrainGame extends EventTarget {
         continue;
       }
       let bufferReal = range - opposite;
+      const floatLength = line.length / this.#roundingFactor;
 
       const lineMid = helperMath.lerp(line.low, line.high, 0.5);
       const hypot = helperMath.hypotDist(lineMid, point);
 
       const adjacent = Math.sqrt(Math.pow(hypot, 2) - Math.pow(opposite, 2));
-      let adjust = (adjacent / line.length); // (0-0.5)
+      let adjust = (adjacent / floatLength); // (0-0.5)
 
       // out of range anyway (adjust for range to line units?)
-      if (adjust > (0.5 + (range / line.length))) {
+      if (adjust > (0.5 + (range / floatLength))) {
         continue;
       }
 
@@ -195,7 +208,7 @@ export class TrainGame extends EventTarget {
       bestLine = line;
       bestNodeId = '';
 
-      const buffer = bufferReal / line.length;
+      const buffer = bufferReal / floatLength;
       const found = this.#g.findNode(line.id, alongLine);
 
       if (Math.abs(alongLine - found.at) < buffer) {
@@ -288,8 +301,9 @@ export class TrainGame extends EventTarget {
       return false;  // could not reserve this part
     }
 
-    const expanded = this.#trains.expand(train, 1, 0.1)
-    if (expanded !== 0.1) {
+    const expectedLength = 0.1 * this.#roundingFactor;
+    const expanded = this.#trains.expand(train, 1, expectedLength);
+    if (expanded !== expectedLength) {
       console.warn('couldn\'t expand:', at.offset, 'only got', expanded);
       this.#trains.removeSnake(train);
       return false;
@@ -314,7 +328,7 @@ export class TrainGame extends EventTarget {
       return;
     }
 
-    const amt = (since / 1000) / 4;
+    const amt = (since / 1000) / 4 * this.#roundingFactor;
 
     this.#trainData.forEach((data, train) => {
       const moved = this.#trains.move(train, data.dir, amt);

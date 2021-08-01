@@ -77,12 +77,15 @@ export class Graph {
    */
   add(length) {
     if (length <= 0) {
-      throw new Error(`probably won't work with <= length: ${length}`)
+      throw new Error(`can't add zero length line: ${length}`)
+    }
+    if (~~length !== length) {
+      throw new Error(`only supports integer length`);
     }
 
     const id = nextGlobalId('E');
 
-    const virt = { edge: id, at: 0.0 };
+    const virt = { edge: id, at: 0 };
     const low = { id: nextGlobalId('N'), holder: new Set([id]), pairs: [] };
     const high = { id: nextGlobalId('N'), holder: new Set([id]), pairs: [] };
 

@@ -353,14 +353,17 @@ export class SnakeMan {
     const data = this.#dataForSnake(snake);
     const intendedLength = data.length;
 
+    // increase by this much on one side
     const expandBy = this.expand(snake, end, by);
     const shrinkBy = intendedLength - data.length;
 
-    if (intendedLength !== 0.1) {
-      console.debug('expand', expandBy, 'shrink?', shrinkBy, 'intended', intendedLength);
+    // decrease by this much on the other side
+    this.expand(snake, /** @type {1|-1} */ (-end), shrinkBy);
+
+    if (intendedLength !== data.length) {
+      console.debug('expand', expandBy, 'shrink?', shrinkBy, 'intended', intendedLength, 'now', data.length);
     }
 
-    this.expand(snake, /** @type {1|-1} */ (-end), shrinkBy);
     return expandBy;
   }
 
