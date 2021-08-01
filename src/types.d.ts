@@ -80,7 +80,7 @@ export interface GraphType {
   /**
    * Perform a search from the source to the destination.
    */
-  search(from: { node?: string, prevNode?: string, edge?: string, at?: number, dir?: -1|1 }, to: {edge: string, at: number}): void;
+  search(from: AtNodeDirRequest, to: AtNodeRequest): void;
 }
 
 
@@ -101,6 +101,18 @@ export interface AtNode {
   node: string;
   priorNode: string;
   afterNode: string;
+}
+
+
+export interface AtNodeRequest {
+  node?: string;
+  edge?: string;
+  at?: number;
+}
+
+
+export interface AtNodeDirRequest extends AtNodeRequest {
+  prevNode?: string;
 }
 
 

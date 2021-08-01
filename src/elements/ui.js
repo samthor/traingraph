@@ -293,7 +293,6 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
       const from = {
         edge: fromLine.id,
         at: Math.round(this.#startPoint.offset * fromLine.length),
-        dir: /** @type {1} */ (+1),  // FIXME: just guesses a value
       };
       const to = {
         edge: toLine.id,

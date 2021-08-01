@@ -334,10 +334,6 @@ export class Graph {
     data.virt.splice(i, 0, newVirt);
     data.node.splice(i, 0, newNode);
 
-    // TODO: this is "special" and should never be deletable. Can we mark this somehow?
-    // These will always sort this way as edge is the same, and we know the order already.
-    pairs.push([data.virt[before], data.virt[i]]);
-
     // afterNode may incorrectly point to virt[i], not virt[i+1] (new one)
     for (const p of afterNode.pairs) {
       if (p[0] === beforeVirt) {
@@ -383,13 +379,34 @@ export class Graph {
       } else if (dataEdge.virt[indexOfPrimary - 1] === virt) {
         return dataEdge.node[indexOfPrimary - 1].id;
       }
+      debugger;
       throw new Error(`bad virt, not on correct edge`);
     };
 
-    return data.pairs.map(([a, b]) => {
+    /** @type {[string, string][]} */
+    const out = data.pairs.map(([a, b]) => {
       // find what edges a,b are on and what virts they are adjacent to
       return [nodeVia(a), nodeVia(b)];
     });
+
+    // Insert virtual pairs for the edges that the node is on (unless it's the end node).
+    data.holder.forEach((edge) => {
+      const dataEdge = this.#dataForEdge(edge);
+      const indexOfNode = dataEdge.node.indexOf(data);
+      if (indexOfNode === -1) {
+        throw new Error(`unxpected node not in holder`);
+      }
+      if (indexOfNode === 0 || indexOfNode === dataEdge.node.length - 1) {
+        return;
+      }
+
+      out.push([
+        dataEdge.node[indexOfNode - 1].id,
+        dataEdge.node[indexOfNode + 1].id,
+      ]);
+    });
+
+    return out;
   }
 
   /**
@@ -439,7 +456,7 @@ export class Graph {
       }
     }
 
-    throw new Error(`missing node`);
+    throw new Error(`missing node: ${nodeId}`);
   }
 
   /**
@@ -615,58 +632,80 @@ export class Graph {
   };
 
   /**
-   * @param {{ node?: string, prevNode?: string, edge?: string, at?: number, dir?: -1|1 }} from
-   * @param {{ edge: string, at: number }} to
-   * @return {void}
+   * @param {types.AtNodeDirRequest} from
+   * @param {types.AtNodeRequest} to
    */
   search(from, to) {
-    const { edge: toEdge, at: toAt } = to;
+    /** @type {(() => void)[]} */
+    const cleanup = [];
+
+    /** @type {(req: types.AtNodeRequest | types.AtNodeDirRequest) => { node: string, prevNode: string }} */
+    const ensureNode = (req) => {
+      const prevNode = 'prevNode' in req && req.prevNode || '';
+      if (req.node) {
+        if (req.edge || req.at) {
+          throw new Error(`node doesn't need edge/at`);
+        }
+        return { node: req.node, prevNode };
+      }
+      if (!req.edge || req.at === undefined) {
+        throw new Error(`without real node, edge/at must be specified`);
+      }
+      const { edge, at } = req;
+
+      // See if there's a node here.
+      const exactNode = this.exactNode(edge, at);
+      if (exactNode.node) {
+        return { node: exactNode.node, prevNode };
+      }
+
+      // Create a node at the given position that gets removed later.
+      const created = this.splitEdge(edge, at);
+      cleanup.push(() => {
+        this.#internalDeleteNode(created.node);
+      });
+
+      return { node: created.node, prevNode };
+    };
+
+    const nodeFrom = ensureNode(from);
+    const nodeTo = ensureNode(to);
+
+    try {
+      this.#internalSearch(nodeFrom, nodeTo.node);
+    } finally {
+      cleanup.forEach((fn) => fn());
+    }
+  }
+
+  /**
+   * @param {{ node: string, prevNode: string }} from
+   * @param {string} to
+   */
+  #internalSearch = (from, to) => {
+
+    /** @type {Set<string>} */
+    const visited = new Set();
 
     /** @type {{ node: string, prevNode: string }[]} */
     const heads = [];
 
-    // TODO: in general we need to support:
-    //   a) at/dir (always along edge itself)
-    //   b) node/priorNode (previous path)
-    //   c) ???
-
-    if (from.at !== undefined) {
-      if (from.dir === undefined || from.edge === undefined) {
-        throw new Error(`search with 'at' requires dir + edge`);
-      }
-
-      // See if this is actually an inner node we can go backwards from. If so, this is actually a
-      // search with a segment.
-      const exact = this.exactNode(from.edge, from.at);
-      if (exact.node) {
-        let prevNode;
-
-        if (from.dir === +1 && exact.priorNode) {
-          prevNode = exact.priorNode;
-        } else if (from.dir === -1 && exact.afterNode) {
-          prevNode = exact.afterNode;
-        }
-
-        if (prevNode) {
-          return this.search({ node: exact.node, prevNode }, to);
-        }
-      }
-
-      // Do an initial match of this "segment". We don't record it for revisiting reasons because we never
-      // really walked over the whole thing.
-      const node = this.findNode(from.edge, from.at, from.dir);
-      const prevNode = from.dir === +1 ? node.priorNode : node.afterNode;
-      if (!node.node && !prevNode) {
-        throw new Error(`unexpected missing next node (should have caught on edge already)`);
-      }
-      heads.push({ node: node.node, prevNode });
+    if (from.prevNode) {
+      heads.push(from);
     } else {
-      if (!from.node || !from.prevNode) {
-        throw new Error(`expected segment pair to be passed`);
+      // TODO: if from.node === to, we can bail early
+
+      const pairs = this.pairsAtNode(from.node);
+      for (const p of pairs) {
+        // TODO: mmm this moves "away" from the source location
+        heads.push(
+          { node: p[0], prevNode: from.node },
+          { node: p[1], prevNode: from.node },
+        );
       }
-      heads.push({ node: from.node, prevNode: from.prevNode });
-      // TODO: record this one as already being visited?
     }
+
+    console.warn('first start', heads.length, {from: from.node, to});
 
     for (;;) {
       const next = heads.shift();
@@ -675,24 +714,37 @@ export class Graph {
         return;
       }
 
+      if (next.node === to) {
+        console.warn('🥳 found target');
+        return;
+      }
+
       const pairs = this.pairsAtNode(next.node);
       const choices = pairs.map(([left, right]) => {
         return left === next.prevNode ? right : left;
       });
-      const s = new Set(choices);
-      if (s.size !== choices.length) {
-        throw new Error('dup choices');
-      }
 
       const segmentChoices = choices.map((choice) => {
         const segment = this.findSegment(next.node, choice);
         return {
           id: `${next.node}:${choice}`,
           segment,
-        }
+          prevNode: next.node,
+          node: choice,
+        };
       });
 
-      console.info('got choices', segmentChoices.map(({id}) => id), 'from choices', choices);
+      for (const choice of segmentChoices) {
+        if (visited.has(choice.id)) {
+          continue;
+        }
+        heads.push({
+          node: choice.node,
+          prevNode: choice.prevNode,
+        });
+      }
+
+      console.info('for seg', next.prevNode, next.node, 'got choices', segmentChoices.map(({id}) => id));
 
       // // find next node in this dir
       // const adjacent = this.findNode(next.edge, next.at, next.dir);
@@ -704,8 +756,53 @@ export class Graph {
 
     }
 
+  };
 
-  }
+  /**
+   * @param {string} node
+   */
+  #internalDeleteNode = (node) => {
+    const linesAtNode = [...this.linesAtNode(node)];
+    if (linesAtNode.length !== 1) {
+      throw new Error(`can only do simple deletions`);
+    }
+    const onlyLine = linesAtNode[0];
+
+    const data = this.#dataForEdge(onlyLine.edge);
+    const index = data.node.findIndex(({id}) => id === node);
+    if (index <= 0 || index >= data.node.length - 1) {
+      throw new Error(`couldn't find cleanup node: ${index}`);
+    }
+
+    // Pairs only exist if this is not a boring clean split.
+    const o = data.node[index];
+    if (o.pairs.length) {
+      throw new Error(`can't delete node with real virts`);
+    }
+
+    //   V    Vx      V
+    // N    Nx    Nj     N
+    //
+    // we're deleting "x", but join is at J. So we have to join to x -1.
+
+    data.node.splice(index, 1);
+    const removedVirt = data.virt.splice(index, 1)[0];
+    const updatedVirt = data.virt[index - 1];
+
+    const afterNode = data.node[index];
+
+    for (const p of afterNode.pairs) {
+      if (p[0] === removedVirt) {
+        p[0] = updatedVirt;
+      }
+      if (p[1] === removedVirt) {
+        p[1] = updatedVirt;
+      }
+    }
+
+
+    this.#byNode.delete(node);
+  };
 }
 
 // A 
