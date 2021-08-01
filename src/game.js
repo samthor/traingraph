@@ -78,7 +78,9 @@ export class TrainGame extends EventTarget {
       throw new Error(`bad line`);
     }
 
-    return helperMath.lerp(line.low, line.high, any.at);
+    const floatAt = any.at / line.length;
+
+    return helperMath.lerp(line.low, line.high, floatAt);
   }
 
   /** @type {Map<string, types.Line>} */
