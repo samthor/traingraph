@@ -17,6 +17,9 @@ export var Virt;
  * Each node is a unique point on one or many lines. It may be a junction or represent a station,
  * signal, etc (although non-junction probably only works with a single pair).
  *
+ * It doesn't have a position because it's at multiple positions on many lines. (This could be
+ * put into holder, to be fair). It cannot be on the same line multiple lines, for sanity.
+ *
  * @typedef {{
  *   id: string,
  *   holder: Set<string>,
@@ -113,43 +116,146 @@ export class Graph {
   }
 
   /**
+   * Finds the index of the best matching node. Returns -1 if out of bounds.
+   *
+   * @param {string} edge
+   * @param {number} at
+   * @param {-1|0|1} dir
+   * @return {number}
+   */
+  #internalFindNodeIndex = (edge, at, dir) => {
+    if (~~at !== at) {
+      throw new Error(`can only find at integer: ${at}`);
+    }
+    const data = this.#dataForEdge(edge);
+
+    // Check the extreme end-case, where we'll match nothing or the edge node only.
+    const isEdgeFind = (at <= 0 && dir <= 0) || (at < 0 && dir > 0)
+        || (at >= data.length && dir >= 0) || (at > data.length && dir < 0);
+    if (isEdgeFind) {
+      const isLow = (at <= 0);
+
+      // Check for an invalid search: there's nothing in this direction.
+      if ((isLow && dir === -1) || (!isLow && dir === +1)) {
+        return -1;
+      }
+
+      return isLow ? 0 : data.node.length - 1;
+    }
+
+    // Find the nearest node, including if we're on top of it. Prefers the node on the lower side
+    // of the line.
+    if (dir === 0) {
+      // Start the 'best' distance at the end of the line. This will never have a zero distance
+      // because we've flagged the edge case at the top of this function.
+      let bestIndex = data.virt.length;
+      let bestDistance = Math.abs(at - data.length);
+      if (bestDistance === 0) {
+        throw new Error(`unexpected, cannot be on top of edge`);
+      }
+
+      // TODO: binary search
+
+      for (let i = 0; i < data.virt.length; ++i) {
+        const check = Math.abs(at - data.virt[i].at);
+        if (bestIndex === -1 || check < bestDistance) {
+          bestIndex = i;
+          bestDistance = check;
+        } else if (check > bestDistance) {
+          return bestIndex;  // short-circuit, this won't get "better"
+        }
+      }
+
+      return bestIndex;
+    }
+
+    // TODO: gross and slow but works (filters to correct side, picks 1st)
+
+    const checks = data.node.filter(({id}, index) => {
+      const nodeAt = data.virt[index]?.at ?? data.length;
+      const rel = at - nodeAt;
+      return Math.sign(rel) !== dir;
+    });
+
+    if (dir === +1) {
+      return data.node.indexOf(checks[0]);
+    } else {
+      return data.node.lastIndexOf(checks[checks.length - 1]);
+    }
+  };
+
+  /**
+   * @param {string} edge
+   * @param {number} at
+   * @param {(-1|0|1)=} dir
+   * @return {types.AtNode}
+   */
+  #internalFindNode = (edge, at, dir) => {
+    let index = -1;
+    const data = this.#dataForEdge(edge);
+
+    if (dir === undefined) {
+      if (at < 0 || at > data.length) {
+        // nothing, index is -1
+      } else if (at === data.length) {
+        index = data.node.length - 1;
+      } else {
+        // may be -1, which is fine
+        index = data.virt.findIndex(({at: check}) => at === check);
+      }
+    } else {
+      index = this.#internalFindNodeIndex(edge, at, dir);
+    }
+
+    if (index === -1) {
+      let priorNode = '';
+      let afterNode = '';
+
+      if (at < data.length) {
+        afterNode = data.node[0].id;
+      }
+      if (at > 0) {
+        priorNode = data.node[data.node.length - 1].id;
+      }
+
+      return {
+        edge,
+        at,
+        node: '',
+        priorNode,
+        afterNode,
+      };
+    }
+
+    // We always have a prior node if we're past the first index.
+    let priorNode = '';
+    if (index > 0) {
+      priorNode = data.node[index - 1].id;
+    }
+
+    // We always have an after node if we're beforet the last index.
+    let afterNode = '';
+    if (index < data.node.length - 1) {
+      afterNode = data.node[index + 1].id;
+    }
+
+    return {
+      edge,
+      at: data.virt[index]?.at ?? data.length,
+      node: data.node[index].id,
+      priorNode,
+      afterNode,
+    };
+  };
+
+  /**
    * @param {string} edge
    * @param {number} at
    * @param {-1|0|1} dir
    * @return {types.AtNode}
    */
   findNode(edge, at, dir = 0) {
-    const data = this.#dataForEdge(edge);
-
-    let all = data.virt.slice().map((virt, index) => {
-      return {at: virt.at, rel: Math.abs(virt.at - at), id: data.node[index].id};
-    });
-    all.push({at: 1.0, rel: Math.abs(1.0 - at), id: data.node[all.length].id});
-
-    if (dir) {
-      all = all.filter((virt) => {
-        const s = Math.sign(virt.at - at);
-        return s === dir || s === 0;
-      });
-      // TODO: don't need to sort in this case
-
-      if (!all.length) {
-        const priorNode = dir === 1 ? data.node[data.node.length - 1].id : '';
-        const afterNode = dir === 1 ? '' : data.node[0].id;
-        return {
-          edge,
-          at,
-          node: '',
-          priorNode,
-          afterNode,
-        };
-      }
-
-    }
-    all.sort(({rel: a}, {rel: b}) => a - b);
-
-    const {id: node} = all[0];
-    return this.nodeOnEdge(edge, node);
+    return this.#internalFindNode(edge, at, dir);
   }
 
   /**
@@ -157,44 +263,8 @@ export class Graph {
    * @param {number} at
    * @return {types.AtNode}
    */
-  nodeAround(edge, at) {
-    const data = this.#dataForEdge(edge);
-
-    if (at < 0.0 || at > 1.0) {
-      return {
-        edge,
-        at,
-        node: '',
-        priorNode: '',
-        afterNode: '',
-      };
-    }
-
-    // TODO: binary search
-    for (let i = 0; i < data.node.length; ++i) {
-      const check = data.virt[i]?.at ?? 1.0;
-
-      if (at === check) {
-        return {
-          edge,
-          at,
-          node: data.node[i].id,
-          priorNode: data.node[i - 1]?.id ?? '',
-          afterNode: data.node[i + 1]?.id ?? '',
-        };
-      }
-
-      if (at < check) {
-        return {
-          edge,
-          at,
-          node: '',
-          priorNode: data.node[i - 1].id,
-          afterNode: data.node[i].id,
-        };
-      }
-    }
-    throw new Error(`should not get here`);
+  exactNode(edge, at) {
+    return this.#internalFindNode(edge, at);
   }
 
   /**
@@ -212,7 +282,7 @@ export class Graph {
 
     return {
       edge,
-      at: edgeData.virt[index]?.at ?? 1.0,
+      at: edgeData.virt[index]?.at ?? edgeData.length,
       node: edgeData.node[index].id,
       priorNode: edgeData.node[index - 1]?.id ?? '',
       afterNode: edgeData.node[index + 1]?.id ?? '',
@@ -225,6 +295,16 @@ export class Graph {
    * @return {types.AtNode}
    */
   splitEdge(edge, at) {
+    if (~~at !== at) {
+      throw new Error(`split only on integer, was: ${at}`);
+    }
+
+    // Don't split if this already exists.
+    const exact = this.exactNode(edge, at);
+    if (exact.node) {
+      return exact;
+    }
+
     const data = this.#dataForEdge(edge);
 
     // TODO: binary search
@@ -402,6 +482,10 @@ export class Graph {
    * @param {string} b node to join
    */
   join(a, via, b) {
+    if (a === b) {
+      throw new Error(`cannot join same node: ${a}`);
+    }
+
     const viaData = this.#dataForNode(via);
 
     const {virt: virtToA} = this.#virtBetween(a, via);
@@ -426,7 +510,7 @@ export class Graph {
     const v = this.#virtBetween(lowNode, highNode);
     const edgeData = this.#dataForEdge(v.virt.edge);
 
-    const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? 1.0;
+    const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? edgeData.length;
     const segmentLength = nextVirtAt - v.virt.at;
 
     let at = v.virt.at;
@@ -453,6 +537,10 @@ export class Graph {
    * @return {{virt: Virt, index: number, dir: -1|1}}
    */
   #virtBetween = (a, b) => {
+    if (a === b) {
+      throw new Error(`cannot find virt between same node: ${a}`);
+    }
+
     const dataA = this.#dataForNode(a);
     const dataB = this.#dataForNode(b);
 
@@ -494,7 +582,7 @@ export class Graph {
       return {virt: dataEdge.virt[index], index, dir};
     }
 
-    throw new Error(`missing virt`);
+    throw new Error(`missing virt between nodes: ${a} ${b}`);
   };
 
   *all() {

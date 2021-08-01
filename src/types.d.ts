@@ -18,18 +18,14 @@ export interface GraphType {
   edgeDetails(edge: string): EdgeDetails;
 
   /**
-   * Finds the nearest edge node to the given position, possibly in the given direction. This will
-   * return the node under `at` if it matches.
+   * Finds the nearest node to the given position, possibly in the given direction.
    */
   findNode(edge: string, at: number, dir?: -1|0|1): AtNode;
 
   /**
-   * Finds any exact matching node, or, the absence of a node. Returns the optional prior and
-   * after nodes. Used for trying to match new additions.
-   *
-   * TODO: almost the same as findNode
+   * Finds an exact node, or approximates that node.
    */
-  nodeAround(edge: string, at: number): AtNode;
+  exactNode(edge: string, at: number): AtNode;
 
   /**
    * Returns information about a specific node on this edge.
@@ -69,8 +65,10 @@ export interface GraphType {
   pairsAtNode(node: string): Iterable<[string, string]>;
 
   /**
-   * Splits the given edge at the specified position and creates a brand new node. This will always
-   * join the two resulting virtual edges (the long edge must remain continuous).
+   * Splits the given edge at the specified position and creates a brand new node, unless a node
+   * already exists here (returns existing).
+   *
+   * This will always join the two resulting virtual edges (the long edge must remain continuous).
    */
   splitEdge(edge: string, at: number): AtNode;
 

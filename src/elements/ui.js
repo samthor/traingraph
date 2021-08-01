@@ -188,7 +188,7 @@ svg {
       this.#groupLines.append(e);
 
       const pairs = this.#game.pairsAtNode(node);
-      pairs.forEach(([left, right]) => {
+      for (const [left, right] of pairs) {
         const leftPos = this.#game.nodePos(left);
         const rightPos = this.#game.nodePos(right);
 
@@ -208,7 +208,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         e.setAttribute('transform', `translate(${Math.cos(angle) * 4} ${Math.sin(angle) * 4})`);
 
         this.#groupLines.append(e);
-      });
+      }
     }
   };
 

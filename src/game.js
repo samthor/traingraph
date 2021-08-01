@@ -38,6 +38,7 @@ export class TrainGame extends EventTarget {
     window.requestAnimationFrame(this.#trainLoop);
   }
 
+  /** @type {types.GraphType} */
   #g = new Graph();
   #trains = new SnakeMan(this.#g, this.#trainNav);
 
@@ -124,7 +125,12 @@ export class TrainGame extends EventTarget {
 
       // We have to split the other line, because the search wasn't pointing at an actual node.
       if (otherNodeId === '') {
-        const split = this.#g.splitEdge(end.line.id, end.offset);
+        const l = this.#lines.get(end.line.id);
+        if (!l) {
+          throw new Error(`coudldn't find other line to split: ${end.line.id}`);
+        }
+        const integerOffset = Math.round(end.offset * l.length);
+        const split = this.#g.splitEdge(end.line.id, integerOffset);
         otherNodeId = split.node;
       }
 
@@ -203,26 +209,31 @@ export class TrainGame extends EventTarget {
         alongLine += 0.5;
       }
 
+      const alongLineInteger = Math.round(alongLine * line.length);
+
       bestDistance = opposite;
-      bestLineOffset = alongLine;
+      bestLineOffset = alongLineInteger;
       bestLine = line;
       bestNodeId = '';
 
       const buffer = bufferReal / floatLength;
-      const found = this.#g.findNode(line.id, alongLine);
+      const found = this.#g.findNode(line.id, alongLineInteger, 0);
+      const floatFound = found.at / line.length;
 
-      if (Math.abs(alongLine - found.at) < buffer) {
-        bestLineOffset = found.at;
+      if (Math.abs(alongLine - floatFound) < buffer) {
+        bestLineOffset = found.at;  // clamp to node, not just a point along line
         bestNodeId = found.node;
       }
-//      console.warn('got best', bestLineOffset, 'found', buffer, found);
+//      console.warn('got best', bestLineOffset / line.length, 'found', buffer, found);
     }
+
 
     if (bestLine !== undefined) {
       const l = /** @type {types.Line} */ (bestLine);
-      const {x, y} = helperMath.lerp(l.low, l.high, bestLineOffset);
+      const floatOffset = bestLineOffset / l.length;
+      const {x, y} = helperMath.lerp(l.low, l.high, floatOffset);
 
-      return {line: l, nodeId: bestNodeId, offset: bestLineOffset, x, y, dist: bestDistance};
+      return {line: l, nodeId: bestNodeId, offset: floatOffset, x, y, dist: bestDistance};
     }
     return {line: null, nodeId: '', offset: NaN, x: point.x, y: point.y, dist: 0};
   }
@@ -244,12 +255,13 @@ export class TrainGame extends EventTarget {
 
     // other lines are either: all lines at node, or a single line we're _about_ to join
 
-    /** @type {{edge: string, priorNode: string, afterNode: string}[]} */
+    /** @type {Iterable<types.AtNode>} */
     let allLines;
     if (find.nodeId) {
       allLines = this.#g.linesAtNode(find.nodeId);
     } else {
-      const around = this.#g.nodeAround(line.id, find.offset);
+      const integerOffset = Math.round(find.offset * line.length);
+      const around = this.#g.exactNode(line.id, integerOffset);
       allLines = [around];
     }
 
@@ -295,7 +307,8 @@ export class TrainGame extends EventTarget {
       throw new Error(`must be added on line`);
     }
 
-    const train = this.#trains.addSnake(at.line.id, at.offset, 1);
+    const integerOffset = Math.round(at.offset * at.line.length);
+    const train = this.#trains.addSnake(at.line.id, integerOffset, 1);
     if (!train) {
       console.warn('couldn\'t reserve solo:', at.offset);
       return false;  // could not reserve this part
@@ -304,7 +317,7 @@ export class TrainGame extends EventTarget {
     const expectedLength = 0.1 * this.#roundingFactor;
     const expanded = this.#trains.expand(train, 1, expectedLength);
     if (expanded !== expectedLength) {
-      console.warn('couldn\'t expand:', at.offset, 'only got', expanded);
+      console.warn('couldn\'t expand:', integerOffset, 'only got', expanded);
       this.#trains.removeSnake(train);
       return false;
     }
