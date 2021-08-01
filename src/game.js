@@ -19,6 +19,9 @@ const maxAngle = Math.PI / 3;
 export class TrainGame extends EventTarget {
 
   #roundingFactor;
+  #trainLength;
+  #moveBy;
+  #stepEvery;
 
   /**
    * @param {string} snake
@@ -30,11 +33,14 @@ export class TrainGame extends EventTarget {
   };
 
   /**
-   * @param {number} roundingFactor
+   * @param {{roundingFactor: number, trainLength: number, moveBy: number, stepEvery: number}} opts
    */
-  constructor(roundingFactor) {
+  constructor(opts) {
     super();
-    this.#roundingFactor = roundingFactor;
+    this.#roundingFactor = opts.roundingFactor;
+    this.#trainLength = opts.trainLength;
+    this.#moveBy = opts.moveBy;
+    this.#stepEvery = opts.stepEvery;
     window.requestAnimationFrame(this.#trainLoop);
   }
 
@@ -176,7 +182,7 @@ export class TrainGame extends EventTarget {
         continue;
       }
       let bufferReal = range - opposite;
-      const floatLength = line.length / this.#roundingFactor;
+      const floatLength = helperMath.hypotDist(line.low, line.high);
 
       const lineMid = helperMath.lerp(line.low, line.high, 0.5);
       const hypot = helperMath.hypotDist(lineMid, point);
@@ -311,12 +317,13 @@ export class TrainGame extends EventTarget {
 
     const integerOffset = Math.round(at.offset * at.line.length);
     const train = this.#trains.addSnake(at.line.id, integerOffset, 1);
+    console.info('adding train at', integerOffset);
     if (!train) {
       console.warn('couldn\'t reserve solo:', at.offset);
       return false;  // could not reserve this part
     }
 
-    const expectedLength = 0.1 * this.#roundingFactor;
+    const expectedLength = this.#trainLength;
     const expanded = this.#trains.expand(train, 1, expectedLength);
     if (expanded !== expectedLength) {
       console.warn('couldn\'t expand:', integerOffset, 'only got', expanded);
@@ -332,19 +339,27 @@ export class TrainGame extends EventTarget {
   #trainData = new Map();
 
   #lastTrainLoop = 0;
+  #loopIndex = 0;
 
   #trainLoop = (now = 0) => {
-    window.requestAnimationFrame(this.#trainLoop);
+    // window.requestAnimationFrame(this.#trainLoop);
 
     const skip = (this.#lastTrainLoop === 0.0);
     const since = now - this.#lastTrainLoop;
     this.#lastTrainLoop = now;
     if (skip) {
+      window.requestAnimationFrame(this.#trainLoop);
       return;
     }
 
-    const amt = (since / 1000) / 4 * this.#roundingFactor;
+    ++this.#loopIndex;
+    if (this.#loopIndex !== this.#stepEvery) {
+      window.requestAnimationFrame(this.#trainLoop);
+      return;
+    }
+    this.#loopIndex = 0;
 
+    const amt = this.#moveBy;
     this.#trainData.forEach((data, train) => {
       const moved = this.#trains.move(train, data.dir, amt);
       if (moved !== amt) {
@@ -357,6 +372,8 @@ export class TrainGame extends EventTarget {
     if (this.#trainData.size) {
       this.dispatchEvent(new CustomEvent('update-train'));
     }
+
+    window.requestAnimationFrame(this.#trainLoop);
   };
 
 }

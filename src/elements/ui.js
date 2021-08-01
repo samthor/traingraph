@@ -219,7 +219,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     for (const {train, points} of raw) {
       const drawPoints = points.map(({edge, at}) => {
         const line = this.#game.lookupLine(edge);
-        return helperMath.lerp(line.low, line.high, at);
+        return helperMath.lerp(line.low, line.high, at / line.length);
       });
 
       const s = drawPoints.map((point, index) => {

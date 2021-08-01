@@ -79,8 +79,13 @@ export class SnakeMan {
    * @param {-1|1} dir
    */
   addSnake(edge, at, dir) {
-    if (at < 0.0 || at > 1.0) {
+    const edgeData = this.#g.edgeDetails(edge);
+
+    if (at <= 0 || at > edgeData.length) {
       throw new Error(`can't add snake off edge: ${at}`);
+    }
+    if (~~at !== at) {
+      throw new Error(`can't add snake on float: ${at}`);
     }
 
     // nb. for now, adding a snake doesn't implicitly touch any related nodes.
@@ -282,7 +287,8 @@ export class SnakeMan {
 
     const other = all[index + 1];
     if (other === undefined) {
-      return {other: null, dist: 1.0 - part.high};
+      const edgeData = this.#g.edgeDetails(part.edge);
+      return {other: null, dist: edgeData.length - part.high};
     }
     return {other, dist: other.low - part.high};
   };
@@ -312,34 +318,28 @@ export class SnakeMan {
    * @return {number} the successful change amount (only <by if +ve)
    */
   expand(snake, end, by) {
+    if (~~by !== by) {
+      throw new Error(`snake must expand by integer`);
+    }
+
     const data = this.#dataForSnake(snake);
 
-    // console.info('(expand)', `end=${end} by=${by}`);
-
-    // TODO: sanity check parts vs intended length
-    // TODO: the snake IS drifting in width over time ... floating point!
+    // TODO: sanity check parts vs intended length (not floating point, just for "bad")
     let totalUse = 0;
     for (const part of data.parts) {
-      const details = this.#g.edgeDetails(part.edge);
-      const partUse = (part.high - part.low) * details.length;
+      const partUse = (part.high - part.low);
       totalUse += partUse;
     }
     if (totalUse !== data.length) {
-      // TODO: This is never quite right because floating point, BUT, seems to remain near the
-      // intended length over time.
-      const delta = Math.abs(totalUse - data.length);
-      if (delta > 0.0001) {
-        console.debug(`got mismatch use/length: ${totalUse}, ${data.length}`);
-      }
+      console.debug(`got mismatch use/length: calc=${totalUse}, rec=${data.length}`);
     }
 
-    if (by === 0.0) {
+    if (by === 0) {
       return 0;
     } else if (by > 0) {
       return this.#increaseSnake(snake, end, by);
     } else {
-      this.#reduceSnake(snake, end, -by);
-      return -by;
+      return this.#reduceSnake(snake, end, -by);
     }
   }
 
@@ -386,16 +386,16 @@ export class SnakeMan {
 
       const effectiveDir = /** @type {-1|1} */ (end * part.dir);
 
-      // The part is in [0,1] space, so convert it to real space relative to its actual length.
-      const partUse = (part.high - part.low) * details.length;
+      // Part is in integer space, so its use is simple.
+      const partUse = (part.high - part.low);
 
       // The change fits in this node; modify it and we're done.
       if (partUse >= dec) {
         if (effectiveDir === 1) {
-          part.high -= dec / details.length;
+          part.high -= dec;
           this.#unreserveNode(part, part.highNode);
         } else {
-          part.low += dec / details.length;
+          part.low += dec;
           this.#unreserveNode(part, part.lowNode);
         }
         break;
@@ -423,6 +423,7 @@ export class SnakeMan {
     }
 
     data.length -= by;
+    return by;
   };
 
   /**
@@ -451,7 +452,7 @@ export class SnakeMan {
         const otherDirNode = effectiveDir === 1 ? part.lowNode : part.highNode;
 
         const details = this.#g.edgeDetails(part.edge);
-        const unitInc = (inc / details.length);
+        const unitInc = inc;  // just increment by integer
 
         // We move in the direction of either of the following options:
         //  A: the next adjacent reservation (will stop)
@@ -510,7 +511,7 @@ export class SnakeMan {
           } else {
             part.low = adjacent.other.high;
           }
-          inc -= (adjacent.dist * details.length);
+          inc -= adjacent.dist;
           break;
         }
 
@@ -524,7 +525,7 @@ export class SnakeMan {
           part.lowNode = nodeInDir.node;
           this.#reserveNode(part, part.lowNode);
         }
-        inc -= (unitDeltaToNode * details.length);
+        inc -= unitDeltaToNode;
         continue;  // we get node correctly in next iteration
       }
 
@@ -591,6 +592,11 @@ export class SnakeMan {
 
     const actualInc = (by - inc);
     data.length += actualInc;
+
+    if (data.length !== ~~data.length) {
+      throw new Error(`failed to expand, now floating point`);
+    }
+
     return actualInc;
   };
 
