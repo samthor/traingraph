@@ -2,10 +2,10 @@
 import { TrainGame } from './game.js';
 
 export const sharedGame = new TrainGame({
-  roundingFactor: 10,
-  trainLength: 3,
-  moveBy: 1,
-  stepEvery: 20,
+  roundingFactor: 100_000,
+  trainLength: 10_000,
+  moveBy: 400,
+  stepEvery: 1,
 });
 
 // @ts-ignore
