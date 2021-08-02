@@ -15,14 +15,15 @@ export class TrainDisplayElement extends LitElement {
   }
 
   render() {
-    const edges = this.#game.graph.all();
+    const g = /** @type {graph.Graph} */ (this.#game.graph);
+    const edges = g.all();
 
     const inner = repeat(edges, ({data: {id}}) => id, (edge) => {
 
       /** @type {(node: graph.Node) => any} */
       const renderNode = (node) => {
         const inner = node.pairs.map(([a, b]) => {
-          return `${a.edge}/${a.at}...${b.edge}/${b.at}`;
+          return `${a.edge}/${a.dir}...${b.edge}/${b.dir}`;
         });
         return `${node.id}: ` + inner.join(', ');
       };
@@ -33,13 +34,13 @@ export class TrainDisplayElement extends LitElement {
 
       render.push(`(${renderNode(data.node[0])})`);
 
-      for (let i = 0; i < data.virt.length; ++i) {
+      for (let i = 0; i < data.virt.length - 1; ++i) {
         const nodeAfter = data.node[i+1];
 
-        render.push(` ${data.virt[i].at}- (${renderNode(nodeAfter)})`);
+        render.push(` ${data.virt[i]}- (${renderNode(nodeAfter)})`);
       }
 
-      return html`<div>${data.id} [${edge.data.length.toFixed(2)}]: ${render.join('')}</div>`;
+      return html`<div>${data.id} [${edge.data.length}, other=${[...edge.data.other].join(',')}]: ${render.join('')}</div>`;
     });
 
     return html`${inner}`;

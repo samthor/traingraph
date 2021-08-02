@@ -1,16 +1,17 @@
 
 import * as types from './types.js';
 import { nextGlobalId } from './helper/id.js';
+import { inlineLessSort } from './helper/swap.js';
 
 
 /**
  * @typedef {{
  *   edge: string,
- *   at: number,    // 0-1
+ *   dir: -1|1,
  * }}
  * @type {never}
  */
-export var Virt;
+export var PairSide;
 
 
 /**
@@ -23,7 +24,7 @@ export var Virt;
  * @typedef {{
  *   id: string,
  *   holder: Set<string>,
- *   pairs: [Virt, Virt][],
+ *   pairs: [PairSide, PairSide][],
  * }}
  * @type {never}
  */
@@ -34,8 +35,9 @@ export var Node;
  * @typedef {{
  *   id: string,
  *   length: number,
- *   virt: Virt[],  // 1-n
- *   node: Node[],  // 2-n
+ *   virt: number[],      // positions of nodes along edge
+ *   node: Node[],        // node objects (shared with other edges)
+ *   other: Set<String>,  // existing joins to other edges
  * }}
  * @type {never}
  */
@@ -43,16 +45,27 @@ export var EdgeData;
 
 
 /**
- * @param {Virt} a
- * @param {Virt} b
+ * @param {PairSide} a
+ * @param {PairSide} b
+ * @return {boolean}
  */
-function virtIsLess(a, b) {
+function pairSideIsLess(a, b) {
   if (a.edge < b.edge) {
     return true;
   } else if (a.edge > b.edge) {
     return false;
   }
-  return a.at < b.at;
+  return a.dir < b.dir;
+}
+
+
+/**
+ * @param {PairSide} a
+ * @param {PairSide} b
+ * @return {boolean}
+ */
+function pairSideEqual(a, b) {
+  return a.dir === b.dir && a.edge === b.edge;
 }
 
 
@@ -88,14 +101,21 @@ export class Graph {
 
     const id = nextGlobalId('E');
 
-    const virt = { edge: id, at: 0 };
     const low = { id: nextGlobalId('N'), holder: new Set([id]), pairs: [] };
     const high = { id: nextGlobalId('N'), holder: new Set([id]), pairs: [] };
 
     this.#byNode.set(low.id, low);
     this.#byNode.set(high.id, high);
 
-    this.#byEdge.set(id, { id, length, virt: [virt], node: [low, high] });
+    /** @type {EdgeData} */
+    const data = {
+      id,
+      length,
+      virt: [0, length],
+      node: [low, high],
+      other: new Set(),
+    };
+    this.#byEdge.set(id, data);
 
     return this.edgeDetails(id);
   }
@@ -112,6 +132,7 @@ export class Graph {
       highNode: data.node[i].id,
       length: data.length,
       edge,
+      other: [...data.other],
     };
   }
 
@@ -148,7 +169,7 @@ export class Graph {
     if (dir === 0) {
       // Start the 'best' distance at the end of the line. This will never have a zero distance
       // because we've flagged the edge case at the top of this function.
-      let bestIndex = data.virt.length;
+      let bestIndex = data.virt.length - 1;
       let bestDistance = Math.abs(at - data.length);
       if (bestDistance === 0) {
         throw new Error(`unexpected, cannot be on top of edge`);
@@ -156,8 +177,8 @@ export class Graph {
 
       // TODO: binary search
 
-      for (let i = 0; i < data.virt.length; ++i) {
-        const check = Math.abs(at - data.virt[i].at);
+      for (let i = 0; i < data.virt.length - 1; ++i) {
+        const check = Math.abs(at - data.virt[i]);
         if (bestIndex === -1 || check < bestDistance) {
           bestIndex = i;
           bestDistance = check;
@@ -172,9 +193,9 @@ export class Graph {
     // TODO: gross and slow but works (filters to correct side, picks 1st)
 
     const checks = data.node.filter(({id}, index) => {
-      const nodeAt = data.virt[index]?.at ?? data.length;
+      const nodeAt = data.virt[index];
       const rel = at - nodeAt;
-      return Math.sign(rel) !== dir;
+      return Math.sign(rel) === -dir;
     });
 
     if (dir === +1) {
@@ -201,7 +222,7 @@ export class Graph {
         index = data.node.length - 1;
       } else {
         // may be -1, which is fine
-        index = data.virt.findIndex(({at: check}) => at === check);
+        index = data.virt.findIndex((check) => at === check);
       }
     } else {
       index = this.#internalFindNodeIndex(edge, at, dir);
@@ -241,7 +262,7 @@ export class Graph {
 
     return {
       edge,
-      at: data.virt[index]?.at ?? data.length,
+      at: data.virt[index],
       node: data.node[index].id,
       priorNode,
       afterNode,
@@ -282,7 +303,7 @@ export class Graph {
 
     return {
       edge,
-      at: edgeData.virt[index]?.at ?? edgeData.length,
+      at: edgeData.virt[index],
       node: edgeData.node[index].id,
       priorNode: edgeData.node[index - 1]?.id ?? '',
       afterNode: edgeData.node[index + 1]?.id ?? '',
@@ -309,8 +330,8 @@ export class Graph {
 
     // TODO: binary search
     let i;
-    for (i = 0; i < data.virt.length; ++i) {
-      if (at < data.virt[i].at) {
+    for (i = 0; i < data.virt.length - 1; ++i) {
+      if (at < data.virt[i]) {
         break;
       }
     }
@@ -321,27 +342,14 @@ export class Graph {
       throw new Error(`bad`);
     }
 
-    /** @type {[Virt, Virt][]} */
+    /** @type {[PairSide, PairSide][]} */
     const pairs = [];
-
-    const beforeVirt = data.virt[i - 1];
-    const newVirt = { edge, at };
 
     const newNode = { id: nextGlobalId('N'), holder: new Set([edge]), pairs };
     this.#byNode.set(newNode.id, newNode);
 
-    data.virt.splice(i, 0, newVirt);
+    data.virt.splice(i, 0, at);
     data.node.splice(i, 0, newNode);
-
-    // afterNode may incorrectly point to virt[i], not virt[i+1] (new one)
-    for (const p of afterNode.pairs) {
-      if (p[0] === beforeVirt) {
-        p[0] = newVirt;
-      }
-      if (p[1] === beforeVirt) {
-        p[1] = newVirt;
-      }
-    }
 
     return {
       edge,
@@ -353,8 +361,10 @@ export class Graph {
   }
 
   /**
-   * Returns all the pairs at this node. This is less than the lines, which might intersect at the
-   * node without being paired up (e.g., angle too steep).
+   * Returns all the pairs at this node. This will point to the adjacent nodes that are connected.
+   *
+   * This won't always be all lines, which might intersect at the node without being paired up
+   * (e.g., angle too steep).
    *
    * @param {string} nodeId
    * @return {[string, string][]}
@@ -362,24 +372,16 @@ export class Graph {
   pairsAtNode(nodeId) {
     const data = this.#dataForNode(nodeId);
 
-    /** @type {(virt: Virt) => string} */
-    const nodeVia = (virt) => {
-      const dataEdge = this.#dataForEdge(virt.edge);
+    /** @type {(side: PairSide) => string} */
+    const nodeVia = (side) => {
+      // TODO: nodeOnEdge could return index then no need to do find again
+      const nodeInfo = this.nodeOnEdge(side.edge, nodeId);
+      const result = this.findNode(side.edge, nodeInfo.at, side.dir);
 
-      // TODO: this is done the "wrong way", by finding the known ID and then finding the virt
-      // around it. it could instead look for the virt first?
-      const indexOfPrimary = dataEdge.node.findIndex((cand) => cand.id === nodeId);
-      if (indexOfPrimary === -1) {
-        throw new Error(`bad virt`);
+      if (!result.node) {
+        throw new Error(`could not find node in dir: ${side.dir}`);
       }
-
-      if (dataEdge.virt[indexOfPrimary] === virt) {
-        return dataEdge.node[indexOfPrimary + 1].id;
-      } else if (dataEdge.virt[indexOfPrimary - 1] === virt) {
-        return dataEdge.node[indexOfPrimary - 1].id;
-      }
-      debugger;
-      throw new Error(`bad virt, not on correct edge`);
+      return result.node;
     };
 
     /** @type {[string, string][]} */
@@ -409,6 +411,29 @@ export class Graph {
   }
 
   /**
+   * Returns all directions from node. This will point to the adjacent nodes that are connected.
+   *
+   * This is useful for ambiguous pathfinding or rendering, but not much else.
+   *
+   * TODO: maybe include a source incoming node dir?
+   *
+   * @param {string} nodeId
+   * @return {Iterable<string>}
+   */
+  dirsFromNode(nodeId) {
+    /** @type {Set<string>} */
+    const out = new Set();
+
+    for (const pos of this.linesAtNode(nodeId)) {
+      out.add(pos.afterNode);
+      out.add(pos.priorNode);
+    }
+
+    out.delete('');  // after or prior might be blank
+    return out;
+  }
+
+  /**
    * Returns all the positions of this given node on all its lines. This must at least return one
    * result.
    *
@@ -422,12 +447,7 @@ export class Graph {
     const out = [];
 
     for (const edgeId of data.holder) {
-      const edgeData = this.#dataForEdge(edgeId);
-      for (const cand of edgeData.node) {
-        if (nodeId === cand.id) {
-          out.push(this.nodeOnEdge(edgeId, nodeId));
-        }
-      }
+      out.push(this.nodeOnEdge(edgeId, nodeId));
     }
 
     if (out.length === 0) {
@@ -445,14 +465,9 @@ export class Graph {
   nodePos(nodeId) {
     const data = this.#dataForNode(nodeId);
 
-    // TODO: same loop as `linesAtNode` but we bail early
     for (const edgeId of data.holder) {
-      const edgeData = this.#dataForEdge(edgeId);
-      for (const cand of edgeData.node) {
-        if (nodeId === cand.id) {
-          return this.nodeOnEdge(edgeId, nodeId);
-        }
-      }
+      // bail on first edge in holder, it's valid
+      return this.nodeOnEdge(edgeId, nodeId);
     }
 
     throw new Error(`missing node: ${nodeId}`);
@@ -464,18 +479,55 @@ export class Graph {
    * @return {string} resulting ID, one of a or b
    */
   mergeNode(a, b) {
+    if (a === b) {
+      return a;  // can't join same node
+    }
+
     const dataA = this.#dataForNode(a);
     const dataB = this.#dataForNode(b);
 
-    // One node remains, one is removed. Keep the one with more joins.
-    const remain = dataA.holder.size > dataB.holder.size ? dataA : dataB;
-    const remove = (remain === dataA ? dataB : dataA);
-
-    remove.holder.forEach((otherEdge) => {
-      if (remain.holder.has(otherEdge)) {
-        throw new Error(`cannot merge nodes on same edge`);
+    // Both nodes are on 1-n edges. Create a resulting set of edges that the joined node will have.
+    const edgesAtFinalNode = new Set(dataA.holder);
+    for (const e of dataB.holder) {
+      if (edgesAtFinalNode.has(e)) {
+        throw new Error(`nodes already touch same edge`);
       }
+      edgesAtFinalNode.add(e);
+    }
 
+    // One node remains, one is removed. Keep the one with more joins.
+    const [remove, remain] = inlineLessSort((a, b) => a.holder.size < b.holder.size, [dataA, dataB]);
+
+    // Make sure that the newly joined edges don't already join each other.
+    // This prevents cases like this:
+    //
+    //     A
+    //    / \
+    //   /   \
+    //   \   /
+    //    \ /
+    //     B
+    //
+    // ... which make the segment between A/B ambiguous: which edge does it take?
+    //
+    // - Pick a side, it doesn't matter
+    // - For every edge connected to that node:
+    //    - Find every other edge that's already connected to
+    //    - If that other edge is connected to the other original node's side, fail
+    for (const edge of dataA.holder) {
+      const data = this.#dataForEdge(edge);
+      for (const o of data.other) {
+        if (dataB.holder.has(o)) {
+          throw new Error('can\'t connect edges twice');
+        }
+      }
+    }
+
+    // At this point, the join is valid, so be destructive.
+
+    // Add edges that "remove" was on, to "remain".
+    // Also replace node references on those edges from "remove" => "remain".
+    remove.holder.forEach((otherEdge) => {
       remain.holder.add(otherEdge);
 
       const data = this.#dataForEdge(otherEdge);
@@ -487,120 +539,118 @@ export class Graph {
       });
     });
 
+    // Add all pairs from "remove" onto "remain". These remain valid, because they just point in
+    // certain directions along existing edges.
     remain.pairs.push(...remove.pairs.splice(0, remove.pairs.length));
+
+    // For every edge now at this node, make sure they're marked as connected to each other.
+    remain.holder.forEach((edge) => {
+      const data = this.#dataForEdge(edge);
+      for (const repeat of remain.holder) {
+        if (repeat !== edge) {
+          // don't include self
+          data.other.add(repeat);
+        }
+      }
+    });
 
     this.#byNode.delete(remove.id);
     return remain.id;
   }
 
   /**
-   * @param {string} a node to join
+   * @param {string} a node in direction to join
    * @param {string} via this node
-   * @param {string} b node to join
+   * @param {string} b node in direction to join
+   * @return {boolean}
    */
   join(a, via, b) {
-    if (a === b) {
-      throw new Error(`cannot join same node: ${a}`);
+    if (a === b || a === via || b === via) {
+      throw new Error(`cannot join same node: ${a} ${via} ${b}`);
     }
+
+    const betweenA = this.findBetween(via, a);
+    const betweenB = this.findBetween(via, b);
+
+    if (betweenA.edge === betweenB.edge) {
+      throw new Error(`can't join on same edge`);
+    }
+
+    // 1. find edge [a,via] and dir
+    // 2. find edge [via,b] and dir
+    // 3. ensure not same edge
+    // 4. add pairs on via (edge, dir)
 
     const viaData = this.#dataForNode(via);
 
-    const {virt: virtToA} = this.#virtBetween(a, via);
-    const {virt: virtToB} = this.#virtBetween(b, via);
+    const source = [{ edge: betweenA.edge, dir: betweenA.dir }, { edge: betweenB.edge, dir: betweenB.dir }];
+    const [left, right] = inlineLessSort(pairSideIsLess, source);
 
-    const left = virtIsLess(virtToA, virtToB) ? virtToA : virtToB;
-    const right = left === virtToA ? virtToB : virtToA;
-
-    for (const existingPair of viaData.pairs) {
-      if (existingPair[0] === left && existingPair[1] === right) {
-        throw new Error(`already paired: ${a} (${via}) ${b}`);
+    for (const [ existingLeft, existingRight ] of viaData.pairs) {
+      if (pairSideEqual(existingLeft, left) && pairSideEqual(existingRight, right)) {
+        return false;
       }
     }
     viaData.pairs.push([left, right]);
+    return true;
   }
 
   /**
    * @param {string} lowNode
    * @param {string} highNode
+   * @return {types.SegmentInfo}
    */
-  findSegment(lowNode, highNode) {
-    const v = this.#virtBetween(lowNode, highNode);
-    const edgeData = this.#dataForEdge(v.virt.edge);
-
-    const nextVirtAt = edgeData.virt[v.index + 1]?.at ?? edgeData.length;
-    const segmentLength = nextVirtAt - v.virt.at;
-
-    let at = v.virt.at;
-    if (v.dir === -1) {
-      at = nextVirtAt;
+  findBetween(lowNode, highNode) {
+    if (lowNode === highNode) {
+      throw new Error(`can't find between same node`);
     }
+
+    const lowData = this.#dataForNode(lowNode);
+    const highData = this.#dataForNode(highNode);
+
+    let sharedEdge = '';
+    for (const edge of lowData.holder) {
+      if (highData.holder.has(edge)) {
+        sharedEdge = edge;
+        break;
+      }
+    }
+    if (!sharedEdge) {
+      throw new Error(`can't find between, nodes [${lowData},${highData}] aren't on same edge`);
+    }
+
+    const edgeData = this.#dataForEdge(sharedEdge);
+    const lowIndex = edgeData.node.findIndex(({id}) => id === lowNode);
+    const highIndex = edgeData.node.findIndex(({id}) => id === highNode);
+    if (lowIndex === -1 || highIndex === -1) {
+      throw new Error(`internal error, node not found in edge`);
+    }
+
+    /** @type {string[]} */
+    let inner;
+    if (lowIndex < highIndex) {
+      // normal +ve dir
+      inner = edgeData.node.slice(lowIndex + 1, highIndex).map(({id}) => id);
+    } else {
+      // -ve dir, slice inverse and reverse list
+      inner = edgeData.node.slice(highIndex + 1, lowIndex).map(({id}) => id);
+      inner.reverse();
+    }
+
+    const lowAt = edgeData.virt[lowIndex];
+    const highAt = edgeData.virt[highIndex];
 
     return {
-      edge: v.virt.edge,
-      at,
-      dir: v.dir,
-      segmentLength,
+      dir: /** @type {-1|1} */ (Math.sign(highAt - lowAt)),
+      length: Math.abs(lowAt - highAt),
+      inner,
+      lowNode,
+      lowAt,
+      highNode,
+      highAt,
+      edge: sharedEdge,
     };
   }
-
-  /**
-   * Find the virtual segment between these two nodes. This _feels_ ambiguous but is actually
-   * concrete because we don't allow multiple nodes to be merged onto the same edge.
-   *
-   * Returns the direction between a/b, +ve for a => b, -ve for b => a.
-   *
-   * @param {string} a node
-   * @param {string} b node
-   * @return {{virt: Virt, index: number, dir: -1|1}}
-   */
-  #virtBetween = (a, b) => {
-    if (a === b) {
-      throw new Error(`cannot find virt between same node: ${a}`);
-    }
-
-    const dataA = this.#dataForNode(a);
-    const dataB = this.#dataForNode(b);
-
-    // Find the line(s) that these are both on (probably one).
-
-    /** @type {Set<string>} */
-    const sharedEdge = new Set();
-    for (const edge of dataA.holder) {
-      if (dataB.holder.has(edge)) {
-        sharedEdge.add(edge);
-      }
-    }
-    if (sharedEdge.size === 0) {
-      throw new Error(`bad virt, nodes ${a}/${b} don't share edge`);
-    }
-
-    for (const edge of sharedEdge) {
-      const dataEdge = this.#dataForEdge(edge);
-
-      // find A, see if B is immediately before or after
-      const indexOfA = dataEdge.node.findIndex((cand) => cand.id === a);
-      if (indexOfA === -1) {
-        throw new Error(`bad data`);
-      }
-
-      /** @type {-1|1} */
-      let dir;
-      let index;
-      if (dataEdge.node[indexOfA - 1]?.id === b) {
-        index = indexOfA - 1;
-        dir = -1;
-      } else if (dataEdge.node[indexOfA + 1]?.id === b) {
-        index = indexOfA;
-        dir = +1;
-      } else {
-        continue;
-      }
-
-      return {virt: dataEdge.virt[index], index, dir};
-    }
-
-    throw new Error(`missing virt between nodes: ${a} ${b}`);
-  };
 
   *all() {
     for (const [edge, data] of this.#byEdge){
@@ -729,19 +779,23 @@ export class Graph {
     } else {
       // This is an undirected search. We find all possible pairs from the node we're at (could
       // be fake or real).
-      const pairs = this.pairsAtNode(from.node);
-      for (const p of pairs) {
-        heads.push(
-          { node: p[0], prevNode: from.node },
-          { node: p[1], prevNode: from.node },
-        );
+      const dirs = this.dirsFromNode(from.node);
+      for (const dir of dirs) {
+        heads.push({ node: dir, prevNode: from.node });
       }
     }
+
+    // TODO: there is an infinite loop that's possible here
+    let steps = 1000;
 
     for (;;) {
       const next = heads.shift();
       if (next === undefined) {
         return null;
+      }
+      --steps;
+      if (steps === 0) {
+        throw new Error(`TODO: pathfinding took too many steps`);
       }
 
       // We've found the target! Walk backwards through the nodes to flatten the path.
@@ -782,7 +836,10 @@ export class Graph {
       }).filter(Boolean));
 
       const segmentChoices = choices.map((choice) => {
-        const segment = this.findSegment(next.node, choice);
+        const segment = this.findBetween(next.node, choice);
+        if (segment.inner.length !== 0) {
+          throw new Error(`pathfinding should go at most one step`);
+        }
         return {
           id: `${next.node}:${choice}`,
           segment,
@@ -809,45 +866,29 @@ export class Graph {
    * @param {string} node
    */
   #internalDeleteNode = (node) => {
-    const linesAtNode = [...this.linesAtNode(node)];
-    if (linesAtNode.length !== 1) {
-      throw new Error(`can only do simple deletions`);
+    const nodeData = this.#dataForNode(node);
+    if (nodeData.holder.size !== 1) {
+      throw new Error(`can only do simple deletions, node on multiple lines: ${node}`);
     }
-    const onlyLine = linesAtNode[0];
+    if (nodeData.pairs.length !== 0) {
+      throw new Error(`can only do simple deletions, node has other pairs: ${node}`);
+    }
 
-    const data = this.#dataForEdge(onlyLine.edge);
+    // Get only entry of the holder Set.
+    let edge = '';
+    for (const cand of nodeData.holder) {
+      edge = cand;
+    }
+
+    const data = this.#dataForEdge(edge);
     const index = data.node.findIndex(({id}) => id === node);
     if (index <= 0 || index >= data.node.length - 1) {
       throw new Error(`couldn't find cleanup node: ${index}`);
     }
 
-    // Pairs only exist if this is not a boring clean split.
-    const o = data.node[index];
-    if (o.pairs.length) {
-      throw new Error(`can't delete node with real virts`);
-    }
-
-    //   V    Vx      V
-    // N    Nx    Nj     N
-    //
-    // we're deleting "x", but join is at J. So we have to join to x -1.
-
+    // Finally, actually splice the node/position out, and nuke its data.
     data.node.splice(index, 1);
-    const removedVirt = data.virt.splice(index, 1)[0];
-    const updatedVirt = data.virt[index - 1];
-
-    const afterNode = data.node[index];
-
-    for (const p of afterNode.pairs) {
-      if (p[0] === removedVirt) {
-        p[0] = updatedVirt;
-      }
-      if (p[1] === removedVirt) {
-        p[1] = updatedVirt;
-      }
-    }
-
-
+    data.virt.splice(index, 1);
     this.#byNode.delete(node);
   };
 }

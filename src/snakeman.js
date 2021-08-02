@@ -450,8 +450,6 @@ export class SnakeMan {
       const alreadyAtNode = (effectiveDir === 1 ? part.highNode : part.lowNode);
       if (!alreadyAtNode) {
         const otherDirNode = effectiveDir === 1 ? part.lowNode : part.highNode;
-
-        const details = this.#g.edgeDetails(part.edge);
         const unitInc = inc;  // just increment by integer
 
         // We move in the direction of either of the following options:
@@ -563,14 +561,14 @@ export class SnakeMan {
       }
 
       // Create a new segment towards the choice that was just made.
-      const seg = this.#g.findSegment(choice.via, choice.to);
+      const seg = this.#g.findBetween(choice.via, choice.to);
       const added = {
         snake,
         edge: seg.edge,
         dir: /** @type {1|-1} */ (seg.dir * end),
-        low: seg.at,
+        low: seg.lowAt,
         lowNode: '',
-        high: seg.at,
+        high: seg.lowAt,
         highNode: '',
       };
 

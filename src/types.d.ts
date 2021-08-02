@@ -46,7 +46,9 @@ export interface GraphType {
 
   /**
    * Merges two nodes, including their existing pairs. One node wins, returns the resulting node.
-   * This cannot merge two nodes on the same edge (edge that wraps on itself).
+   *
+   * This cannot merge two nodes on the same edge (edge that wraps on itself), and cannot create
+   * edges that join more than once.
    *
    * @return the resulting node, the other is removed
    */
@@ -55,14 +57,21 @@ export interface GraphType {
   /**
    * Joins two nodes via another node. This expects that the three nodes are in sequence and will
    * crash otherwise. This creates a pair on the middle node.
+   *
+   * Returns true if a join was added, otherwise false.
    */
-  join(a: string, via: string, b: string): void;
+  join(a: string, via: string, b: string): boolean;
 
   /**
    * Finds all pairs at this node. This might not include all lines, because they may intersect here
    * without actually being paired up.
    */
   pairsAtNode(node: string): Iterable<[string, string]>;
+
+  /**
+   * Finds all possible adjcent nodes from this node.
+   */
+  dirsFromNode(node: string): Iterable<string>;
 
   /**
    * Splits the given edge at the specified position and creates a brand new node, unless a node
@@ -73,9 +82,9 @@ export interface GraphType {
   splitEdge(edge: string, at: number): AtNode;
 
   /**
-   * Finds the unambiguous segment between these two nodes.
+   * Finds the segment between these two nodes, as long as they share the same edge.
    */
-  findSegment(lowNode: string, highNode: string): {edge: string, at: number, dir: -1|1, segmentLength: number};
+  findBetween(lowNode: string, highNode: string): SegmentInfo;
 
   /**
    * Perform a search from the source to the destination.
@@ -89,6 +98,21 @@ export interface EdgeDetails {
   highNode: string;
   lowNode: string;
   length: number;
+  other: Iterable<string>;  // connected edges
+}
+
+
+export interface SegmentInfo {
+  dir: -1|1;
+  length: number;
+  edge: string;
+
+  lowNode: string;
+  lowAt: number;
+  highNode: string;
+  highAt: number;
+
+  inner: string[];
 }
 
 
