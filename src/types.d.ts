@@ -164,3 +164,48 @@ export interface Line {
   id: string;
 }
 
+
+
+export interface SimpleGraphType {
+
+  /**
+   * Adds a new wholly disconnected node, with an optional prescribed ID.
+   */
+  addNode(id?: string): string;
+
+  /**
+   * Connects two nodes via an arbitrary integer non-zero length. Each pair of nodes can only be
+   * connected once.
+   */
+  connect(a: string, b: string, length: number): void;
+
+  /**
+   * Splits an existing connection between new nodes by inserting the new via node in their midst.
+   * Automatically includes the middle node in joins.
+   */
+  split(a: string, via: string, b: string, along: number): void;
+
+  /**
+   * Joins already connected nodes (i.e., A and B both connected to middle node), to allow e.g.,
+   * pathfinding and reservations along the new path.
+   */
+  join(a: string, via: string, b: string): boolean;
+
+  /**
+   * Adds a zero-point reservation at a single node.
+   */
+  addReserve(node: string, id?: string): string;
+
+  /**
+   * Grows a reservation, on its given end, by the specified amount. Pass a callback for ambiguous
+   * decisions to be resolved (otherwise grow will cease early).
+   */
+  grow(r: string, end: -1|1, by: number, callback?: (node: string, options: string[]) => string): number;
+
+  /**
+   * Shrinks a reservation on its given end, by the specified +ve amount.
+   */
+  shrink(r: string, end: -1|1, by: number): number;
+
+}
+

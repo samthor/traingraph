@@ -1,6 +1,6 @@
 
+import * as types from './types.js';
 import { nextGlobalId } from './helper/id.js';
-
 
 
 /**
@@ -17,11 +17,11 @@ export var EdgeData;
  * incoming nodes and the through-nodes they connect to on the "other side" (0-n).
  *
  * @typedef {{
- *   id: string,
  *   conn: {[node: string]: {
  *     edge: EdgeData,
- *     through: string[],
- *   }}
+ *     through: Set<string>,
+ *   }},
+ *   reserve: Set<string>,
  * }}
  * @type {never}
  */
@@ -29,11 +29,29 @@ export var NodeData;
 
 
 
+/**
+ * @typedef {{
+ *   length: number,
+ *   node: string[],
+ *   headOffset: number,
+ *   tailOffset: number,
+ * }}
+ * @type {never}
+ */
+export var ReserveData;
 
+
+
+/**
+ * @implements {types.SimpleGraphType}
+ */
 export class GraphSimple {
 
   /** @type {Map<string, NodeData>} */
   #byNode = new Map();
+
+  /** @type {Map<string, ReserveData>} */
+  #byReserve = new Map();
 
   /**
    * @param {string} id
@@ -59,11 +77,11 @@ export class GraphSimple {
    * @param {string} id optional ID to use
    * @return {string}
    */
-  addNode(id = nextGlobalId()) {
+  addNode(id = nextGlobalId('N')) {
     if (this.#byNode.has(id)) {
       throw new Error(`can't add duplicate node: ${id}`);
     }
-    this.#byNode.set(id, { id, conn: {} });
+    this.#byNode.set(id, { conn: {}, reserve: new Set() });
     return id;
   }
 
@@ -94,8 +112,8 @@ export class GraphSimple {
     /** @type {EdgeData} */
     const edge = { length };
 
-    dataA.conn[b] = { edge, through: [] };
-    dataB.conn[a] = { edge, through: [] };
+    dataA.conn[b] = { edge, through: new Set() };
+    dataB.conn[a] = { edge, through: new Set() };
 
     return true;
   }
@@ -130,6 +148,9 @@ export class GraphSimple {
     if (connA === undefined || connB === undefined) {
       throw new Error(`nodes not already joined`);
     }
+    if (via in dataA.conn || via in dataB.conn) {
+      throw new Error(`outer nodes already connected to middle node`);
+    }
 
     const commonRemoveEdge = connA.edge;
     if (commonRemoveEdge !== connB.edge) {
@@ -152,10 +173,16 @@ export class GraphSimple {
     // This rewrites through values: incoming connections to the end nodes might point at the other
     // side, and they'll now instead point at the middle node.
     Object.values(dataA.conn).forEach((c) => {
-      c.through = c.through.map((other) => other === b ? via : other);
+      if (c.through.has(b)) {
+        c.through.delete(b);
+        c.through.add(via);
+      }
     });
     Object.values(dataB.conn).forEach((c) => {
-      c.through = c.through.map((other) => other === a ? via : other);
+      if (c.through.has(a)) {
+        c.through.delete(a);
+        c.through.add(via);
+      }
     });
 
     // The new middle node can still get to whatever outer nodes it could before.
@@ -164,8 +191,8 @@ export class GraphSimple {
     dataB.conn[via] = { ...connA, edge: edgeB };
 
     // The middle node can just get to the other sides.
-    dataVia.conn[a] = { edge: edgeA, through: [b] };
-    dataVia.conn[b] = { edge: edgeB, through: [a] };
+    dataVia.conn[a] = { edge: edgeA, through: new Set([b]) };
+    dataVia.conn[b] = { edge: edgeB, through: new Set([a]) };
   }
 
   /**
@@ -186,24 +213,294 @@ export class GraphSimple {
       throw new Error(`nodes not already connected`);
     }
 
-    let change = false;
-    change = arrayInsert(dataVia.conn[a].through, b) || change;
-    change = arrayInsert(dataVia.conn[b].through, a) || change;
-    return change;
+    dataVia.conn[a].through.add(b);
+    dataVia.conn[b].through.add(a);
+
+    return true;  // TODO: not actually checked
+  }
+
+  /**
+   * @param {string} r
+   */
+  #dataForReserve = (r) => {
+    const d = this.#byReserve.get(r);
+    if (d === undefined) {
+      throw new Error(`missing data for reserve: ${r}`);
+    }
+    return d;
+  };
+
+  /**
+   * @param {string} node
+   * @param {string} id
+   */
+  addReserve(node, id = nextGlobalId('R')) {
+    if (this.#byReserve.has(id)) {
+      throw new Error(`can't add duplicate reservation: ${id}`);
+    }
+
+    // Store this reservation on top of this specific node.
+    const nodeData = this.#dataForNode(node);
+    nodeData.reserve.add(id);
+
+    /** @type {ReserveData} */
+    const reserveData = {
+      length: 0,
+      node: [node],
+      headOffset: 0,
+      tailOffset: 0,
+    };
+
+    this.#byReserve.set(id, reserveData);
+    return id;
+  }
+
+  /**
+   * @param {string} id
+   */
+  _getByReserve(id) {
+    return this.#dataForReserve(id);
+  }
+
+  /**
+   * @param {string} r
+   * @param {-1|1} end
+   * @param {number} by
+   * @param {((node: string, options: string[]) => string)=} callback
+   */
+  #growPart = (r, end, by, callback) => {
+    const reserveData = this.#dataForReserve(r);
+
+    // We have space to grow towards the head node, forward.
+    if (end === +1 && reserveData.headOffset) {
+      const grow = Math.min(reserveData.headOffset, by);
+      reserveData.headOffset -= grow;
+      return grow;
+    }
+
+    // We have space to grow towards the tail node, backwards.
+    if (end === -1 && reserveData.tailOffset) {
+      const grow = Math.min(reserveData.tailOffset, by);
+      reserveData.tailOffset -= grow;
+      return grow;
+    }
+
+    // Otherwise, this is abutting a node on either end of the reservation.
+    let node = '';
+    let priorNode = '';
+
+    if (reserveData.node.length === 1) {
+      // This reservation is sitting on a specific node with no direction. It can expand in any
+      // direction, a special case.
+      node = reserveData.node[0];
+    } else if (end === +1) {
+      // This reservation's head is sitting on a node.
+      node = reserveData.node[0];
+      priorNode = reserveData.node[1];
+    } else if (end === -1) {
+      // This reservation's tail is sitting on a node.
+      const length = reserveData.node.length;
+      node = reserveData.node[length - 1];
+      priorNode = reserveData.node[length - 2];
+    } else {
+      throw new Error('unknown');
+    }
+
+    const nodeData = this.#dataForNode(node);
+
+    let options = Object.keys(nodeData.conn);
+    if (priorNode !== '') {
+      options = options.filter((option) => nodeData.conn[option].through.has(priorNode));
+    }
+
+    let choice = options[0] ?? '';
+    if (options.length > 1) {
+      choice = callback?.(node, options) ?? '';
+    }
+
+    const conn = nodeData.conn[choice];
+    if (conn === undefined) {
+      return 0;  // invalid/no choice
+    }
+
+    // Consume as much as possible (maybe whole edge, maybe part).
+    const grow = Math.min(by, conn.edge.length);
+    if (end === +1) {
+      reserveData.node.unshift(choice);
+      reserveData.headOffset = conn.edge.length - grow;
+    } else {
+      reserveData.node.push(choice);
+      reserveData.tailOffset = conn.edge.length - grow;
+    }
+    return grow;
+  };
+
+  /**
+   * @param {string} r
+   * @param {-1|1} end
+   * @param {number} by
+   * @param {((node: string, options: string[]) => string)=} callback
+   */
+  grow(r, end, by, callback) {
+    if (by !== ~~by || by < 0 || Math.sign(end) !== end) {
+      throw new Error(`must grow by +ve integer`);
+    }
+
+    const reserveData = this.#dataForReserve(r);
+    const total = by;
+
+    while (by > 0) {
+      const step = this.#growPart(r, end, by, callback);
+      if (step === 0) {
+        break;
+      }
+
+      by -= step;
+
+      // Find any new head node that we are now on top of.
+      let frontNode;
+      if (end === +1 && reserveData.headOffset === 0) {
+        frontNode = reserveData.node[0];
+      } else if (end === -1 && reserveData.tailOffset === 0) {
+        const length = reserveData.node.length;
+        frontNode = reserveData.node[length - 1];
+      } else {
+        continue;
+      }
+      const nodeData = this.#dataForNode(frontNode);
+      nodeData.reserve.add(r);
+    }
+
+    const growth = total - by;
+    if (growth === 0) {
+      return 0;
+    }
+
+    reserveData.length += growth;
+    return growth;
+  }
+
+  /**
+   * @param {string} r
+   * @param {-1|1} end
+   * @param {number} by
+   */
+  #shrinkPart = (r, end, by) => {
+    const reserveData = this.#dataForReserve(r);
+
+    // We're on a single node and cannot shrink further (-ve shrink does not grow).
+    if (reserveData.node.length === 1) {
+      throw new Error(`internal; should not try to shrink zero-sized reservation`);
+    }
+
+    if (end === +1) {
+      const front = reserveData.node[0];
+      const prior = reserveData.node[1];
+
+      const edge = this.#byNode.get(front)?.conn[prior].edge;
+      if (edge === undefined) {
+        throw new Error(`internal: can't shrink, missing edge`);
+      }
+
+      // Is this reservation only on this single segment? If so, limit its ability to shrink.
+      const priorOffset = reserveData.node.length === 2 ? reserveData.tailOffset : 0;
+      const edgeUse = edge.length - (reserveData.headOffset + priorOffset);
+      const shrink = Math.min(edgeUse, by);
+      reserveData.headOffset += shrink;
+
+      // Did we consume the entire edge? If so, remove it.
+      if (reserveData.headOffset === edge.length) {
+        reserveData.node.shift();
+        reserveData.headOffset = 0;
+      }
+
+      return shrink;
+
+    } else if (end === -1) {
+      const length = reserveData.node.length;
+      const front = reserveData.node[length - 1];
+      const prior = reserveData.node[length - 2];
+
+      const edge = this.#byNode.get(front)?.conn[prior].edge;
+      if (edge === undefined) {
+        throw new Error(`internal: can't shrink, missing edge`);
+      }
+
+      // Is this reservation only on this single segment? If so, limit its ability to shrink.
+      const priorOffset = reserveData.node.length === 2 ? reserveData.headOffset : 0;
+      const edgeUse = edge.length - (reserveData.tailOffset + priorOffset);
+      const shrink = Math.min(edgeUse, by);
+      reserveData.tailOffset += shrink;
+
+      // Did we consume the entire edge? If so, remove it.
+      if (reserveData.tailOffset === edge.length) {
+        reserveData.node.pop();
+        reserveData.tailOffset = 0;
+      }
+
+      return shrink;
+    }
+
+    throw new Error('internal: should not get here');
+  };
+
+  /**
+   * @param {string} r
+   * @param {-1|1} end
+   * @param {number} by
+   */
+  shrink(r, end, by) {
+    if (by !== ~~by || by < 0 || Math.sign(end) !== end) {
+      throw new Error(`must shrink by +ve integer`);
+    }
+
+    const reserveData = this.#dataForReserve(r);
+    const total = Math.min(reserveData.length, by);
+    if (total === 0) {
+      return 0;  // don't bother looping, we can't shrink anyway
+    }
+    by = total;
+
+    while (by > 0) {
+      // Find out if we're no longer on top of a certain head node. This will mostly be a valid
+      // node, except where we loop on ourselves (don't remove us).
+      // TODO: probably harder to find self overlap since it's a boolean on/off
+      const length = reserveData.node.length;
+      let frontNode = '';;
+      if (end === +1) {
+        frontNode = reserveData.node[0];
+        // start at [n,?,?,...] because nodes cannot join to self
+        for (let i = 3; i < length; ++i) {
+          if (reserveData.node[i] === frontNode) {
+            frontNode = '';
+            break;
+          }
+        }
+      } else if (end === -1) {
+        frontNode = reserveData.node[length - 1];
+        // only check [...,?,?,n] for same reasons as above
+        for (let i = 0; i < length - 3; ++i) {
+          if (reserveData.node[i] === frontNode) {
+            frontNode = '';
+            break;
+          }
+        }
+      }
+      if (frontNode) {
+        const nodeData = this.#dataForNode(frontNode);
+        nodeData.reserve.delete(r);
+      }
+
+      const step = this.#shrinkPart(r, end, by);
+      if (step === 0) {
+        throw new Error(`unable to shrink by: ${by}`);
+      }
+      by -= step;
+    }
+
+    reserveData.length -= total;
+    return total;
   }
 
 }
 
-
-/**
- * @template T
- * @param {T[]} arr
- * @param {T} add
- */
-const arrayInsert = (arr, add) => {
-  if (arr.includes(add)) {
-    return false;
-  }
-  arr.push(add);
-  return true;
-};
