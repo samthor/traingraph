@@ -618,5 +618,61 @@ export class GraphSimple {
     return {...reserveData, node: reserveData.node.slice()};
   }
 
+  /**
+   * @param {string} r
+   * @param {{head: string, tail: string, headOffset: number, tailOffset: number}} q
+   */
+  #matchSegment = (r, q) => {
+    /** @type {string[]} */
+    const found = [];
+
+    if (q.headOffset === 0) {
+      const nodeData = this.#dataForNode(q.head);
+      found.push(...nodeData.reserve);
+    }
+
+    if (q.tailOffset === 0) {
+      const nodeData = this.#dataForNode(q.tail);
+      found.push(...nodeData.reserve);
+    }
+
+    // TODO: could compare to all other segments here... but might just be easier to store properly
+
+    return found;
+  };
+
+  /**
+   * @param {string} r
+   */
+  query(r) {
+    /** @type {string[]} */
+    const found = [];
+
+    const reserveData = this.#dataForReserve(r);
+    if (reserveData.node.length === 1) {
+      // Special-case single node point.
+      const nodeData = this.#dataForNode(reserveData.node[0]);
+      return [...nodeData.reserve];
+    }
+
+    for (let i = 0; i < reserveData.node.length - 1; ++i) {
+      const head = reserveData.node[i + 0];
+      const tail = reserveData.node[i + 1];
+
+      const headOffset = i === 0 ? reserveData.headOffset : 0;
+      const tailOffset = i === (reserveData.node.length - 1) ? reserveData.tailOffset : 0;
+
+      const out = this.#matchSegment(r, { head, tail, headOffset, tailOffset });
+      found.push(...out);
+    }
+
+    const s = new Set(found);
+
+    // TODO: might actually overlap ourselves
+    s.delete(r);
+
+    return [...s];
+  }
+
 }
 

@@ -228,7 +228,15 @@ export interface SimpleGraphType {
    */
   shrink(r: string, end: -1|1, by: number): number;
 
+  /**
+   * Gets the points for this reservation.
+   */
   points(r: string): {node: string[], headOffset: number, tailOffset: number, length: number};
+
+  /**
+   * Returns any other reservations under this one.
+   */
+  query(r: string): string[];
 
 }
 

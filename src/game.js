@@ -422,6 +422,16 @@ export class TrainGame extends EventTarget {
     this.#trainData.forEach((data, train) => {
 
       const growBy = this.#g.grow(train, data.dir, amt, randomGrow);
+
+      const other = this.#g.query(train);
+      if (other.length) {
+        console.warn('booped another train')
+        this.#g.shrink(train, data.dir, amt);
+
+        data.dir = /** @type {-1|1} */ (-data.dir);
+        return;
+      }
+
       this.#g.shrink(train, /** @type {-1|1} */ (-data.dir), growBy);
 
       // TODO: this doesn't "bounce", just stops
