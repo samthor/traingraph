@@ -5,7 +5,19 @@ import { nextGlobalId } from './helper/id.js';
 
 /**
  * @typedef {{
+ *   low: number,
+ *   high: number,
+ *   reserve: string,
+ * }}
+ * @type {never}
+ */
+export var EdgeReserveData;
+
+
+/**
+ * @typedef {{
  *   length: number,
+ *   res: EdgeReserveData[],  // inserted 1-2 times (1 for point, 2 for ends)
  * }}
  * @type {never}
  */
@@ -72,6 +84,13 @@ export class GraphSimple {
   };
 
   /**
+   * @return {Iterable<string>}
+   */
+  allNodes() {
+    return this.#byNode.keys();
+  }
+
+  /**
    * Add a new disconnected node.
    *
    * @param {string} id optional ID to use
@@ -110,7 +129,7 @@ export class GraphSimple {
     }
 
     /** @type {EdgeData} */
-    const edge = { length };
+    const edge = { length, res: [] };
 
     dataA.conn[b] = { edge, through: new Set() };
     dataB.conn[a] = { edge, through: new Set() };
@@ -133,6 +152,12 @@ export class GraphSimple {
     }
     if (a === b || a === via || via === b) {
       throw new Error(`cannot split same nodes`);
+    }
+
+    // TODO: need to split reservations that are within [a,b]
+
+    if (!via) {
+      via = this.addNode();
     }
 
     const dataA = this.#dataForNode(a);
@@ -167,8 +192,8 @@ export class GraphSimple {
     delete dataB.conn[a];
 
     // The split gets assigned to whatever node the user passed first.
-    const edgeA = { length: along };
-    const edgeB = { length: connA.edge.length - along };
+    const edgeA = { length: along, res: [] };
+    const edgeB = { length: connA.edge.length - along, res: [] };
 
     // This rewrites through values: incoming connections to the end nodes might point at the other
     // side, and they'll now instead point at the middle node.
@@ -188,11 +213,13 @@ export class GraphSimple {
     // The new middle node can still get to whatever outer nodes it could before.
     // (This is basically a copy but it only copies the 'through' for now).
     dataA.conn[via] = { ...connA, edge: edgeA };
-    dataB.conn[via] = { ...connA, edge: edgeB };
+    dataB.conn[via] = { ...connB, edge: edgeB };
 
     // The middle node can just get to the other sides.
     dataVia.conn[a] = { edge: edgeA, through: new Set([b]) };
     dataVia.conn[b] = { edge: edgeB, through: new Set([a]) };
+
+    return via;
   }
 
   /**
@@ -213,10 +240,12 @@ export class GraphSimple {
       throw new Error(`nodes not already connected`);
     }
 
+    const change = !dataVia.conn[a].through.has(b);
+
     dataVia.conn[a].through.add(b);
     dataVia.conn[b].through.add(a);
 
-    return true;  // TODO: not actually checked
+    return change;
   }
 
   /**
@@ -350,6 +379,32 @@ export class GraphSimple {
     const total = by;
 
     while (by > 0) {
+      // if (end === +1 && reserveData.headOffset) {
+      //   // TODO: options here?
+      //   //   - allow overlaps, replace single reservation with another on change (could be many same)
+      //   //   - don't allow overlaps, but still allow touch (maybe same problem as above)
+      //   //   - wildcard: simplify "all of this edge" case
+      //   //                          _
+      //   //                        _| |
+      //   //   - comedy option... _|   |_ data structure (heights)
+
+      //   // This will change somehow.
+      //   const edge = this.#byNode.get(reserveData.node[0])?.conn[reserveData.node[1]].edge;
+      //   if (edge === undefined) {
+      //     throw new Error(`missing edge for head`);
+      //   }
+
+      //   // Create low/high reservation on this edge.
+      //   let low = reserveData.node.length === 2 ? reserveData.tailOffset : 0;
+      //   let high = reserveData.headOffset;
+      //   if (reserveData.node[0] < reserveData.node[1]) {
+      //     ([low, high] = [high, low]);
+      //   }
+
+      //   const expectedRes = { low, high, reserve: r };
+      //   console.debug('expected to remove res', expectedRes);
+      // }
+
       const step = this.#growPart(r, end, by, callback);
       if (step === 0) {
         break;
@@ -466,8 +521,8 @@ export class GraphSimple {
       // node, except where we loop on ourselves (don't remove us).
       // TODO: probably harder to find self overlap since it's a boolean on/off
       const length = reserveData.node.length;
-      let frontNode = '';;
-      if (end === +1) {
+      let frontNode = '';
+      if (end === +1 && reserveData.headOffset === 0) {
         frontNode = reserveData.node[0];
         // start at [n,?,?,...] because nodes cannot join to self
         for (let i = 3; i < length; ++i) {
@@ -476,7 +531,7 @@ export class GraphSimple {
             break;
           }
         }
-      } else if (end === -1) {
+      } else if (end === -1 && reserveData.tailOffset === 0) {
         frontNode = reserveData.node[length - 1];
         // only check [...,?,?,n] for same reasons as above
         for (let i = 0; i < length - 3; ++i) {
@@ -500,6 +555,67 @@ export class GraphSimple {
 
     reserveData.length -= total;
     return total;
+  }
+
+  /**
+   * @param {string} node
+   * @return {Iterable<{ other: string, length: number }>}
+   */
+  connectAtNode(node) {
+    const nodeData = this.#dataForNode(node);
+    return Object.keys(nodeData.conn).map((other) => {
+      return { other, length: nodeData.conn[other].edge.length };
+    });
+  }
+
+  /**
+   * @param {string} node
+   * @return {Iterable<[string, string]>}
+   */
+  joinsAtNode(node) {
+    const nodeData = this.#dataForNode(node);
+
+    /** @type {Map<string, [string, string]>} */
+    const all = new Map();
+
+    for (const [other, conn] of Object.entries(nodeData.conn)) {
+      for (const c of conn.through) {
+        let left = other;
+        let right = c;
+        if (right < left) {
+          ([left, right] = [right, left]);
+        }
+
+        // We'll see both sides, so just return it once.
+        const key = `${left}:${right}`;
+        all.set(key, [left, right]);
+      }
+    }
+
+    return all.values();
+  }
+
+  /**
+   * @param {string} a
+   * @param {string} b
+   */
+  lineFor(a, b) {
+    const nodeData = this.#dataForNode(a);
+
+    const other = nodeData.conn[b];
+    if (other === undefined) {
+      return null;
+    }
+
+    return { length: other.edge.length };
+  }
+
+  /**
+   * @param {string} r 
+   */
+  points(r) {
+    const reserveData = this.#dataForReserve(r);
+    return {...reserveData, node: reserveData.node.slice()};
   }
 
 }

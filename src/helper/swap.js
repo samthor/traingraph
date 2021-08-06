@@ -22,3 +22,15 @@ export function inlineLessSort(less, all) {
   out.sort(compare);
   return out;
 }
+
+
+/**
+ * @param {string} a
+ * @param {string} b
+ */
+export function nodeKey(a, b) {
+  if (b < a) {
+    return `${b}:${a}`;
+  }
+  return `${a}:${b}`;
+}

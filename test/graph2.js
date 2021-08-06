@@ -18,11 +18,11 @@ test('connect & join', t => {
   // connected but not yet joined
   t.deepEqual(dataB.conn, {
     'a': {
-      edge: { length: 1 },
+      edge: { length: 1, res: [] },
       through: new Set(),
     },
     'c': {
-      edge: { length: 10 },
+      edge: { length: 10, res: [] },
       through: new Set(),
     },
   });
@@ -32,11 +32,11 @@ test('connect & join', t => {
   // joined
   t.deepEqual(dataB.conn, {
     'a': {
-      edge: { length: 1 },
+      edge: { length: 1, res: [] },
       through: new Set(['c']),
     },
     'c': {
-      edge: { length: 10 },
+      edge: { length: 10, res: [] },
       through: new Set(['a']),
     },
   });
@@ -57,7 +57,7 @@ test('split', t => {
   const dataA = g._getByNode('a');
   t.deepEqual(dataA.conn, {
     'b': {
-      edge: { length: 100 },
+      edge: { length: 100, res: [] },
       through: new Set(),
     },
   });
@@ -71,17 +71,17 @@ test('split', t => {
   const dataVia = g._getByNode('via');
   t.deepEqual(dataVia.conn, {
     'a': {
-      edge: { length: 40 },
+      edge: { length: 40, res: [] },
       through: new Set(['b']),
     },
     'b': {
-      edge: { length: 60 },
+      edge: { length: 60, res: [] },
       through: new Set(['a']),
     },
   });
   t.deepEqual(dataA.conn, {
     'via': {
-      edge: { length: 40 },
+      edge: { length: 40, res: []},
       through: new Set(),  // "via" can't go anywhere through us
     },
   });
@@ -93,11 +93,11 @@ test('split', t => {
   g.split('via', 'via2', 'b', 25);
   t.deepEqual(dataVia.conn, {
     'a': {
-      edge: { length: 40 },
+      edge: { length: 40, res: [] },
       through: new Set(['via2']),  // "a" can get to "via2" through us
     },
     'via2': {
-      edge: { length: 25 },
+      edge: { length: 25, res: [] },
       through: new Set(['a']),  // "via2" can get to "a" through us
     },
   });

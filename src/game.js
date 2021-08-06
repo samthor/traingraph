@@ -1,13 +1,18 @@
 
-import { Graph } from './graph.js';
+import { GraphSimple } from './graph2.js';
 import * as helperMath from './helper/math.js';
-import { SnakeMan } from './snakeman.js';
-import * as snakeman from './snakeman.js';
+import { nodeKey } from './helper/swap.js';
+// import { SnakeMan } from './snakeman.js';
+// import * as snakeman from './snakeman.js';
 import * as types from './types.js';
 
 
 /** @type {types.LineSearch} */
-export const zeroLineSearch = {line: null, nodeId: '', offset: NaN, x: 0, y: 0, dist: Infinity};
+export const zeroLineSearch = {node: '', offset: NaN, x: 0, y: 0, low: '', high: ''};
+
+
+/** @type {(node: string, choices: string[]) => string} */
+const randomGrow = (node, choices) => helperMath.randomChoice(choices) ?? '';
 
 
 /**
@@ -17,20 +22,13 @@ const maxAngle = Math.PI / 3;
 
 
 export class TrainGame extends EventTarget {
-
   #roundingFactor;
   #trainLength;
   #moveBy;
   #stepEvery;
 
-  /**
-   * @param {string} snake
-   * @param {snakeman.Choice[]} choices
-   */
-  #trainNav = (snake, choices) => {
-    const index = ~~(Math.random() * choices.length);
-    return index;
-  };
+  /** @type {Map<string, types.Point>} */
+  #nodePos = new Map();
 
   /**
    * @param {{roundingFactor: number, trainLength: number, moveBy: number, stepEvery: number}} opts
@@ -44,9 +42,9 @@ export class TrainGame extends EventTarget {
     window.requestAnimationFrame(this.#trainLoop);
   }
 
-  /** @type {types.GraphType} */
-  #g = new Graph();
-  #trains = new SnakeMan(this.#g, this.#trainNav);
+  /** @type {types.SimpleGraphType} */
+  #g = new GraphSimple();
+  // #trains = new SnakeMan(this.#g, this.#trainNav);
 
   get graph() {
     return this.#g;
@@ -57,36 +55,96 @@ export class TrainGame extends EventTarget {
   }
 
   get trains() {
-    return this.#trains.allSnakes();
+    return [];
+//    return this.#trains.allSnakes();
   }
 
   trainsPoints() {
     return Array.from(this.#trainData.keys()).map((train) => {
-      return {train, points: this.#trains.pointsForSnake(train)};
+      const data = this.#g.points(train);
+      const length = data.node.length;
+
+      const points = data.node.map((node, i) => {
+        const pos = this.nodePos(node);
+
+        /** @type {number} */
+        let along;
+
+        /** @type {string} */
+        let otherNode;
+
+        if (i === 0 && data.headOffset) {
+          // Is this the first segment and we're behind the head?
+          const line = this.#g.lineFor(data.node[0], data.node[1]);
+          if (line === null) {
+            throw new Error(`missing train head line`);
+          }
+
+          along = data.headOffset / line.length;
+          otherNode = data.node[1];
+        } else if (i === length - 1 && data.tailOffset) {
+          // Is this the last segment and we're behind the tail?
+          const line = this.#g.lineFor(data.node[length - 1], data.node[length - 2]);
+          if (line === null) {
+            throw new Error(`missing train tail line`);
+          }
+
+          along = data.tailOffset / line.length;
+          otherNode = data.node[length - 2];
+        } else {
+          return pos;
+        }
+
+        const otherPos = this.nodePos(otherNode);
+        return helperMath.lerp(pos, otherPos, along);
+      });
+
+      return {train, points};
     });
+  }
+
+  *allLines() {
+    /** @type {Set<string>} */
+    const seen = new Set();
+
+    for (const node of this.#g.allNodes()) {
+      const connect = this.#g.connectAtNode(node);
+      for (const c of connect) {
+        let low = node;
+        let high = c.other;
+
+        if (high < low) {
+          ([high, low] = [low, high]);
+        }
+
+        const key = `${low}:${high}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+
+        yield { low, high, length: c.length };
+      }
+    }
   }
 
   /**
    * @param {string} node
    */
   pairsAtNode(node) {
-    return this.#g.pairsAtNode(node);
+    return this.#g.joinsAtNode(node);
   }
 
   /**
    * @param {string} node
+   * @return {types.Point}
    */
   nodePos(node) {
-    const any = this.#g.nodePos(node);
-
-    const line = this.#lines.get(any.edge);
-    if (!line) {
-      throw new Error(`bad line`);
+    const p = this.#nodePos.get(node);
+    if (p === undefined) {
+      throw new Error(`bad node: ${node}`);
     }
-
-    const floatAt = any.at / line.length;
-
-    return helperMath.lerp(line.low, line.high, floatAt);
+    return p;
   }
 
   /**
@@ -94,26 +152,29 @@ export class TrainGame extends EventTarget {
    * @param {number} at
    */
   linePosLerp(lineId, at) {
-    const line = this.#lines.get(lineId);
-    if (!line) {
-      throw new Error(`bad line`);
-    }
-    const floatAt = at / line.length;
-    return helperMath.lerp(line.low, line.high, floatAt);
-  }
+    throw 1;
+    // const line = this.#lines.get(lineId);
+    // if (!line) {
+    //   throw new Error(`bad line`);
+    // }
+    // const floatAt = at / line.length;
 
-  /** @type {Map<string, types.Line>} */
-  #lines = new Map();
+    // const lowPos = this.nodePos(line.low);
+    // const highPos = this.nodePos(line.high);
+
+    // return helperMath.lerp(lowPos, highPos, floatAt);
+  }
 
   /**
    * @param {string} line
    */
   lookupLine(line) {
-    const data = this.#lines.get(line);
-    if (data === undefined) {
-      throw new Error(`unknown line: ${line}`);
-    }
-    return data;
+    throw 2;
+    // const data = this.#lines.get(line);
+    // if (data === undefined) {
+    //   throw new Error(`unknown line: ${line}`);
+    // }
+    // return data;
   }
 
   /**
@@ -121,55 +182,49 @@ export class TrainGame extends EventTarget {
    * @param {types.LineSearch} high
    */
   add(low, high) {
-    const length = Math.hypot(low.x - high.x, low.y - high.y);
-
-    // Round to an actual integer value before adding to graph.
-    const roundedLength = Math.floor(length * this.#roundingFactor);
-    const {edge, lowNode, highNode} = this.#g.add(roundedLength);
-
-    const line = {
-      low: {x: low.x, y: low.y},
-      high: {x: high.x, y: high.y},
-      length: roundedLength,
-      id: edge,
-    };
-    this.#lines.set(edge, line);
-
-    // We have to work out if each end/both sides were actually a touch on a real node and merge.
-    const nodes = [low, high].map((end) => {
-      const nodeId = (end === low ? lowNode : highNode);
-      if (end.line === null) {
-        return nodeId;  // nothing to merge, this is _our_ node
+    /** @type {(part: types.LineSearch) => string} */
+    const maybeSplit = (part) => {
+      if (part.node) {
+        return part.node;
       }
 
-      let otherNodeId = end.nodeId;
+      let createdNode;
 
-      // We have to split the other line, because the search wasn't pointing at an actual node.
-      if (otherNodeId === '') {
-        const l = this.#lines.get(end.line.id);
-        if (!l) {
-          throw new Error(`coudldn't find other line to split: ${end.line.id}`);
+      if (isNaN(part.offset)) {
+        createdNode = this.#g.addNode();
+      } else {
+        const line = this.#g.lineFor(part.low, part.high);
+        if (line === null) {
+          throw new Error(`got bad search: ${part.low}/${part.high}`);
         }
-        const integerOffset = Math.round(end.offset * l.length);
-        const split = this.#g.splitEdge(end.line.id, integerOffset);
-        otherNodeId = split.node;
+        const { length } = line;
+        const at = Math.round(length * part.offset);
+        createdNode = this.#g.split(part.low, '', part.high, at);
       }
 
-      // Merge this end with the split. Return the winning node.
-      return this.#g.mergeNode(nodeId, otherNodeId);
-    });
+      this.#nodePos.set(createdNode, {x: part.x, y: part.y});
+      return createdNode;
+    };
+
+    const lowNode = maybeSplit(low);
+    const highNode = maybeSplit(high);
+
+    // Round the length to an actual integer value before adding to graph.
+    const length = Math.hypot(low.x - high.x, low.y - high.y);
+    const roundedLength = Math.floor(length * this.#roundingFactor);
+    this.#g.connect(lowNode, highNode, roundedLength);
 
     // Now we have to add pairs as needed. This is a three-point problem.
-    [low, high].forEach((end, index) => {
-      const otherEnd = end === low ? high : low;
-      const midNode = nodes[index];
-      const otherNode = nodes[index ? 0 : 1];
+    const arg = [{node: lowNode, search: low}, {node: highNode, search: high}];
+    arg.forEach(({node, search}) => {
+      const otherNode = (node === lowNode ? highNode : lowNode);
+      const otherPoint = otherNode === lowNode ? low : high;
 
-      // we have 2/3 nodes, need (many) 3rd: where it can link up to
+      const dirs = this.dirsFor(otherPoint, search);
 
-      const results = this.dirsFor(otherEnd, end);
-      results.forEach(({node}) => {
-        this.#g.join(otherNode, midNode, node);
+      dirs.forEach(({ node: farNode }) => {
+        const done = this.#g.join(otherNode, node, farNode);
+        console.warn('adding', otherNode, node, farNode, done);
       });
     });
 
@@ -183,21 +238,25 @@ export class TrainGame extends EventTarget {
    */
   nearest(point, range = 0.2) {
     let bestDistance = range;
-    let bestLineOffset = 0.0;
+    let bestOffset = 0.0;
     let bestNodeId = '';
+    let bestPoint = point;
 
-    /** @type {types.Line | undefined} */
+    /** @type {{low: string, high: string}=} */
     let bestLine = undefined;
 
-    for (const line of this.#lines.values()) {
-      const opposite = helperMath.distance(point, line.low, line.high);
+    for (const line of this.allLines()) {
+      const lowPos = this.nodePos(line.low);
+      const highPos = this.nodePos(line.high);
+
+      const opposite = helperMath.distance(point, lowPos, highPos);
       if (opposite >= bestDistance) {
         continue;
       }
       let bufferReal = range - opposite;
-      const floatLength = helperMath.hypotDist(line.low, line.high);
+      const floatLength = helperMath.hypotDist(lowPos, highPos);
 
-      const lineMid = helperMath.lerp(line.low, line.high, 0.5);
+      const lineMid = helperMath.lerp(lowPos, highPos, 0.5);
       const hypot = helperMath.hypotDist(lineMid, point);
 
       const adjacent = Math.sqrt(Math.pow(hypot, 2) - Math.pow(opposite, 2));
@@ -209,12 +268,12 @@ export class TrainGame extends EventTarget {
       }
 
       // This is kinda gross but work out which point is closer.
-      const distLow = helperMath.hypotDist(line.low, point);
-      const distHigh = helperMath.hypotDist(line.high, point);
+      const distLow = helperMath.hypotDist(lowPos, point);
+      const distHigh = helperMath.hypotDist(highPos, point);
 
       if (adjust > 0.5) {
         // check we're in a circle around end, not a square box
-        const closest = distLow < distHigh ? line.low : line.high;
+        const closest = distLow < distHigh ? lowPos : highPos;
         const actualDist = helperMath.hypotDist(closest, point);
         if (actualDist >= bestDistance) {
           continue;
@@ -223,6 +282,9 @@ export class TrainGame extends EventTarget {
         adjust = 0.5;
       }
 
+      // This is the best so far.
+      bestDistance = opposite;
+
       let alongLine = adjust;
       if (distLow < distHigh) {
         alongLine = 0.5 - alongLine;
@@ -230,37 +292,42 @@ export class TrainGame extends EventTarget {
         alongLine += 0.5;
       }
 
-      const alongLineInteger = Math.round(alongLine * line.length);
+      const targetAlongLine = (alongLine < 0.5 ? 0.0 : 1.0);
 
-      bestDistance = opposite;
-      bestLineOffset = alongLineInteger;
-      bestLine = line;
-      bestNodeId = '';
-
-      const buffer = bufferReal / floatLength;
-      const found = this.#g.findNode(line.id, alongLineInteger, 0);
-      const floatFound = found.at / line.length;
-
-      // If this is literally the same node position, or it's within the UI float buffer, set its
-      // nodeId for rendering.
-      if (alongLineInteger === found.at || Math.abs(alongLine - floatFound) < buffer) {
-        bestLineOffset = found.at;  // clamp to node, not just a point along line
-        bestNodeId = found.node;
+      // Maybe clamp to one of the sides.
+      if (Math.abs(targetAlongLine - alongLine) < range) {
+        bestNodeId = (targetAlongLine ? line.high : line.low);
+        bestOffset = targetAlongLine;
+        bestLine = undefined;
+        bestPoint = (targetAlongLine ? highPos : lowPos);
+        continue;
       }
-//      console.warn('got best', bestLineOffset / line.length, 'found', buffer, found);
+
+      bestNodeId = '';
+      bestOffset = alongLine;
+      bestLine = line;
+      bestPoint = helperMath.lerp(lowPos, highPos, alongLine);
     }
 
-
-    if (bestLine !== undefined) {
-      const l = /** @type {types.Line} */ (bestLine);
-      const floatOffset = bestLineOffset / l.length;
-      const {x, y} = helperMath.lerp(l.low, l.high, floatOffset);
-
-      const out = {line: l, nodeId: bestNodeId, offset: floatOffset, x, y, dist: bestDistance};
-      // console.debug('best', out);
-      return out;
-    }
-    return {line: null, nodeId: '', offset: NaN, x: point.x, y: point.y, dist: 0};
+    if (bestLine) {
+      // This is on a line.
+      return {
+        ...bestPoint,
+        node: '',
+        low: bestLine.low,
+        high: bestLine.high,
+        offset: bestOffset,
+      };
+    } else {
+      // This is a random point, either in free space or at a node.
+      return {
+        ...bestPoint,
+        node: bestNodeId,
+        low: '',
+        high: '',
+        offset: NaN,
+      };
+    };
   }
 
   /**
@@ -268,49 +335,33 @@ export class TrainGame extends EventTarget {
    * @param {types.LineSearch} find
    */
   dirsFor(fromPoint, find) {
-    const {line} = find;
-    if (!line) {
+    if (!find.node && !find.low && !find.high) {
       return [];  // no joins, brand new line
     }
 
     const angle = Math.atan2(fromPoint.y - find.y, fromPoint.x - find.x);
 
-    /** @type {{line: string, angle: number, node: string}[]} */
+    /** @type {{node: string, angle: number}[]} */
     const out = [];
 
-    // other lines are either: all lines at node, or a single line we're _about_ to join
-
-    /** @type {Iterable<types.AtNode>} */
-    let allLines;
-    if (find.nodeId) {
-      allLines = this.#g.linesAtNode(find.nodeId);
+    /** @type {Iterable<string>} */
+    let possibleNodes;
+    if (find.node) {
+      possibleNodes = [...this.#g.connectAtNode(find.node)].map(({other}) => other);
     } else {
-      const integerOffset = Math.round(find.offset * line.length);
-      const around = this.#g.exactNode(line.id, integerOffset);
-      allLines = [around];
+      possibleNodes = [find.low, find.high];
     }
 
-    for (const raw of allLines) {
-      const {edge: lineId} = raw;
+    for (const cand of possibleNodes) {
+      const otherPoint = this.nodePos(cand);
 
-      const line = this.#lines.get(lineId);
-      if (!line) {
-        throw new Error(`missing line: ${lineId}`);
-      }
+      // This is the angle on the target line. It's "correct" and we need to decide if it's allowed.
+      const lineAngle = helperMath.angle(otherPoint, find);
 
-      // one or zero (the line), zero if threshold too low
-      const lineAngle = helperMath.angle(line.high, line.low);
+      // Is the delta smaller than maxAngle?
       const delta = helperMath.smallestAngle(angle, lineAngle);
-      // console.warn('delta angle', delta, 'vs', maxAngle, 'and', Math.PI - maxAngle);
-
-      if (delta < maxAngle && raw.priorNode) {
-        // going towards low?
-        out.push({line: lineId, angle: lineAngle + Math.PI, node: raw.priorNode});
-      }
-
-      if (delta > Math.PI - maxAngle && raw.afterNode) {
-        // going towards high
-        out.push({line: lineId, angle: lineAngle, node: raw.afterNode});
+      if (delta > Math.PI - maxAngle) {
+        out.push({ node: cand, angle: lineAngle });
       }
     }
 
@@ -318,35 +369,26 @@ export class TrainGame extends EventTarget {
   }
 
   /**
-   * @return {Iterable<types.Line>}
-   */
-  get lines() {
-    return [...this.#lines.values()];
-  }
-
-  /**
    * @param {types.LineSearch} at
    */
   addTrain(at) {
-    if (!at.line) {
-      throw new Error(`must be added on line`);
+    if (!at.node) {
+      // TODO: for now can only add on node (not mid)
+      throw new Error(`TODO: can only add at point`);
     }
 
-    const integerOffset = Math.round(at.offset * at.line.length);
-    const train = this.#trains.addSnake(at.line.id, integerOffset, 1);
-    console.info('adding train at', integerOffset);
-    if (!train) {
-      console.warn('couldn\'t reserve solo:', at.offset);
-      return false;  // could not reserve this part
-    }
+    const train = this.#g.addReserve(at.node);
 
     const expectedLength = this.#trainLength;
-    const expanded = this.#trains.expand(train, 1, expectedLength);
+    const expanded = this.#g.grow(train, 1, expectedLength, randomGrow);
     if (expanded !== expectedLength) {
-      console.warn('couldn\'t expand:', integerOffset, 'only got', expanded);
-      this.#trains.removeSnake(train);
+      console.warn('couldn\'t expand:', expectedLength, 'only got', expanded);
+      // TODO: remove
+      // this.#trains.removeSnake(train);
       return false;
     }
+
+    console.warn('added train', train);
 
     this.#trainData.set(train, {dir: -1});
     return true;
@@ -378,12 +420,21 @@ export class TrainGame extends EventTarget {
 
     const amt = this.#moveBy;
     this.#trainData.forEach((data, train) => {
-      const moved = this.#trains.move(train, data.dir, amt);
-      if (moved !== amt) {
-        // move back by amount we didn't move off end (yes this could happen forever but just do once)
+
+      const growBy = this.#g.grow(train, data.dir, amt, randomGrow);
+      this.#g.shrink(train, /** @type {-1|1} */ (-data.dir), growBy);
+
+      // TODO: this doesn't "bounce", just stops
+      if (growBy !== amt) {
         data.dir = /** @type {-1|1} */ (-data.dir);
-        this.#trains.move(train, data.dir, amt - moved);
       }
+
+      // const moved = this.#trains.move(train, data.dir, amt);
+      // if (moved !== amt) {
+      //   // move back by amount we didn't move off end (yes this could happen forever but just do once)
+      //   data.dir = /** @type {-1|1} */ (-data.dir);
+      //   this.#trains.move(train, data.dir, amt - moved);
+      // }
     });
 
     if (this.#trainData.size) {

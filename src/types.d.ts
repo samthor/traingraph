@@ -142,12 +142,13 @@ export interface AtNodeDirRequest extends AtNodeRequest {
 
 
 export interface LineSearch {
-  line: Line?;
-  nodeId: string,
-  offset: number;
+  node: string,
   x: number;
   y: number;
-  dist: number;
+
+  low: string;
+  high: string;
+  offset: number;
 }
 
 
@@ -158,8 +159,8 @@ export interface Point {
 
 
 export interface Line {
-  low: Point;
-  high: Point;
+  low: string;
+  high: string;
   length: number;
   id: string;
 }
@@ -167,6 +168,11 @@ export interface Line {
 
 
 export interface SimpleGraphType {
+
+  /**
+   * Iterates through all nodes in this graph.
+   */
+  allNodes(): Iterable<string>;
 
   /**
    * Adds a new wholly disconnected node, with an optional prescribed ID.
@@ -181,15 +187,30 @@ export interface SimpleGraphType {
 
   /**
    * Splits an existing connection between new nodes by inserting the new via node in their midst.
-   * Automatically includes the middle node in joins.
+   * Automatically includes the middle node in joins. Returns the via node.
    */
-  split(a: string, via: string, b: string, along: number): void;
+  split(a: string, via: string, b: string, along: number): string;
 
   /**
    * Joins already connected nodes (i.e., A and B both connected to middle node), to allow e.g.,
    * pathfinding and reservations along the new path.
    */
   join(a: string, via: string, b: string): boolean;
+
+  /**
+   * The other nodes that this is connected to.
+   */
+  connectAtNode(node: string): Iterable<{other: string, length: number}>;
+
+  /**
+   * Returns the length of this line, or null if not connected.
+   */
+  lineFor(a: string, b: string): {length: number}?;
+
+  /**
+   * Returns the joins at the node, probably for rendering.
+   */
+  joinsAtNode(node: string): Iterable<[string, string]>;
 
   /**
    * Adds a zero-point reservation at a single node.
@@ -206,6 +227,8 @@ export interface SimpleGraphType {
    * Shrinks a reservation on its given end, by the specified +ve amount.
    */
   shrink(r: string, end: -1|1, by: number): number;
+
+  points(r: string): {node: string[], headOffset: number, tailOffset: number, length: number};
 
 }
 

@@ -4,6 +4,7 @@ import { sharedGame } from '../shared';
 import { zeroLineSearch } from '../game';
 import * as helperMath from '../helper/math';
 import * as types from '../types';
+import { nodeKey } from '../helper/swap';
 
 
 export class TrainUiElement extends HTMLElement {
@@ -183,12 +184,15 @@ svg {
   #onUpdateGame = () => {
     this.#groupLines.textContent = '';
 
-    for (const line of this.#game.lines) {
+    for (const line of this.#game.allLines()) {
+      const sideA = this.#game.nodePos(line.low);
+      const sideB = this.#game.nodePos(line.high);
+
       const e = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      e.setAttribute('x1', line.low.x / this.#ratio + 'px');
-      e.setAttribute('y1', line.low.y / this.#ratio + 'px');
-      e.setAttribute('x2', line.high.x / this.#ratio + 'px');
-      e.setAttribute('y2', line.high.y / this.#ratio + 'px');
+      e.setAttribute('x1', sideA.x / this.#ratio + 'px');
+      e.setAttribute('y1', sideA.y / this.#ratio + 'px');
+      e.setAttribute('x2', sideB.x / this.#ratio + 'px');
+      e.setAttribute('y2', sideB.y / this.#ratio + 'px');
       this.#groupLines.append(e);
     }
 
@@ -201,7 +205,9 @@ svg {
       this.#groupLines.append(e);
 
       const pairs = this.#game.pairsAtNode(node);
-      for (const [left, right] of pairs) {
+      const p = [...pairs];
+      // console.warn('pairs for node', node, 'pairs', p);
+      for (const [left, right] of p) {
         const leftPos = this.#game.nodePos(left);
         const rightPos = this.#game.nodePos(right);
 
@@ -230,12 +236,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
 
     const raw = this.#game.trainsPoints();
     for (const {train, points} of raw) {
-      const drawPoints = points.map(({edge, at}) => {
-        const line = this.#game.lookupLine(edge);
-        return helperMath.lerp(line.low, line.high, at / line.length);
-      });
-
-      const s = drawPoints.map((point, index) => {
+      const s = points.map((point, index) => {
         return `${index ? 'L' : 'M'}${point.x / this.#ratio} ${point.y / this.#ratio}`;
       }).join(' ');
 
@@ -244,7 +245,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
       e.setAttribute('class', 'train');
       this.#trainLines.append(e);
 
-      const headPoint = drawPoints[0];
+      const headPoint = points[0];
       const circ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circ.setAttribute('cx', `${headPoint.x / this.#ratio}`);
       circ.setAttribute('cy', `${headPoint.y / this.#ratio}`);
@@ -277,11 +278,10 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     circ.setAttribute('cy', s.y / this.#ratio + 'px');
 
     let className = '';
-    if (s.line) {
+    if (s.low && s.high) {
       className = 'line';
-      if (s.nodeId) {
-        className = 'node';
-      }
+    } else if (s.node) {
+      className = 'node';
     }
     circ.setAttribute('class', className);
   };
@@ -293,6 +293,10 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     const p = this.#adjustEvent(event);
     this.#nearestPoint = p;
     this.#joinLines.textContent = '';
+
+    if (p.node) {
+      console.info('at', p.node);
+    }
 
     if (this.#state === 'path') {
       this.#configureCircle(this.#startCircle, this.#startPoint);
@@ -344,7 +348,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
     this.#configureCircle(this.#startCircle, this.#startPoint);
     this.#configureCircle(this.#nearestCircle, p);
 
-    /** @type {(root: types.Point, joins: {line: string, angle: number}[]) => void} */
+    /** @type {(root: types.Point, joins: {node: string, angle: number}[]) => void} */
     const render = (root, joins) => {
       for (const j of joins) {
         const rx = root.x / this.#ratio;
@@ -409,7 +413,8 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         break;
 
       case 's':
-        if (this.#state || !this.#nearestPoint.line) {
+        if (this.#state || !this.#nearestPoint.node) {
+          // TODO: should support mid adding
           return;
         }
 
