@@ -312,6 +312,7 @@ export class TrainGame extends EventTarget {
     if (bestLine) {
       // This is on a line.
       return {
+        attached: true,
         ...bestPoint,
         node: '',
         low: bestLine.low,
@@ -321,6 +322,7 @@ export class TrainGame extends EventTarget {
     } else {
       // This is a random point, either in free space or at a node.
       return {
+        attached: Boolean(bestNodeId),
         ...bestPoint,
         node: bestNodeId,
         low: '',
@@ -335,7 +337,7 @@ export class TrainGame extends EventTarget {
    * @param {types.LineSearch} find
    */
   dirsFor(fromPoint, find) {
-    if (!find.node && !find.low && !find.high) {
+    if (!find.attached) {
       return [];  // no joins, brand new line
     }
 
@@ -372,12 +374,28 @@ export class TrainGame extends EventTarget {
    * @param {types.LineSearch} at
    */
   addTrain(at) {
-    if (!at.node) {
-      // TODO: for now can only add on node (not mid)
-      throw new Error(`TODO: can only add at point`);
+    if (!at.attached) {
+      throw new Error(`can't add unattached train`);
     }
 
-    const train = this.#g.addReserve(at.node);
+    const addNode = at.node || at.low;
+    const train = this.#g.addReserve(addNode);
+
+    // We're trying to add a train in the middle of a segment, move into place.
+    if (!at.node) {
+      const line = this.#g.lineFor(at.low, at.high);
+      if (line === null) {
+        throw new Error(`missing line`);
+      }
+
+      // nb. only expands towards high (probably fine)
+      const offset = Math.round(at.offset * line.length);
+      const moved = this.#g.grow(train, 1, offset, () => at.high);
+      if (moved !== offset) {
+        throw new Error(`could not move train to position`);
+      }
+      this.#g.shrink(train, -1, offset);
+    }
 
     const expectedLength = this.#trainLength;
     const expanded = this.#g.grow(train, 1, expectedLength, randomGrow);

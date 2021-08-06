@@ -648,6 +648,9 @@ export class GraphSimple {
     /** @type {string[]} */
     const found = [];
 
+    // TODO: following is broken
+    return [];
+
     const reserveData = this.#dataForReserve(r);
     if (reserveData.node.length === 1) {
       // Special-case single node point.

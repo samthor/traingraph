@@ -413,8 +413,7 @@ S ${pos.x / this.#ratio} ${pos.y / this.#ratio}, ${rightAlongPos.x / this.#ratio
         break;
 
       case 's':
-        if (this.#state || !this.#nearestPoint.node) {
-          // TODO: should support mid adding
+        if (this.#state || !this.#nearestPoint.attached) {
           return;
         }
 

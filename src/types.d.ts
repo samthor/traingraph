@@ -142,6 +142,8 @@ export interface AtNodeDirRequest extends AtNodeRequest {
 
 
 export interface LineSearch {
+  attached: boolean;
+
   node: string,
   x: number;
   y: number;
